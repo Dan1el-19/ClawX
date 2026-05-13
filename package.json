@@ -23,6 +23,9 @@
                 "x64",
                 "arm64"
             ]
+        },
+        "patchedDependencies": {
+            "openclaw@2026.4.23": "patches/openclaw@2026.4.23.patch"
         }
     },
     "description": "ClawX - Graphical AI Assistant based on OpenClaw",

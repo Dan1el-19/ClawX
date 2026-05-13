@@ -1,0 +1,162 @@
+diff --git a/dist/chat-DM9hSaNV.js b/dist/chat-DM9hSaNV.js
+index 938e1c3c8b603fab3a4269598df8bdf503dc494e..e1fab979cf81029cf8019e4844e0def2349cd3cf 100644
+--- a/dist/chat-DM9hSaNV.js
++++ b/dist/chat-DM9hSaNV.js
+@@ -12,7 +12,7 @@ import { p as resolveThinkingDefault } from "./model-selection-BLnNKGGO.js";
+ import "./sessions-BUydSdf4.js";
+ import { i as resolveSessionFilePath } from "./paths-CfltKDEL.js";
+ import { t as emitSessionTranscriptUpdate } from "./transcript-events-BSJWlilY.js";
+-import { c as stripEnvelopeFromMessages, i as readSessionMessages, n as capArrayByJsonBytes, p as jsonUtf8Bytes, s as stripEnvelopeFromMessage, t as attachOpenClawTranscriptMeta } from "./session-utils.fs-CxNFMEBB.js";
++import { b as readRecentSessionMessages, c as stripEnvelopeFromMessages, i as readSessionMessages, n as capArrayByJsonBytes, p as jsonUtf8Bytes, s as stripEnvelopeFromMessage, t as attachOpenClawTranscriptMeta } from "./session-utils.fs-CxNFMEBB.js";
+ import { o as parseAssistantTextSignature, s as resolveAssistantMessagePhase } from "./chat-message-content-BqgwRnGh.js";
+ import { a as stripInlineDirectiveTagsFromMessageForDisplay, i as stripInlineDirectiveTagsForDisplay, n as sanitizeReplyDirectiveId } from "./directive-tags-Bb9KtDtd.js";
+ import { n as stripInboundMetadata } from "./strip-inbound-meta-CmdyYDK1.js";
+@@ -1984,17 +1984,17 @@ const chatHandlers = {
+ 		const { sessionKey, limit, maxChars } = params;
+ 		const { cfg, storePath, entry } = loadSessionEntry(sessionKey);
+ 		const sessionId = entry?.sessionId;
++		const max = Math.min(1e3, typeof limit === "number" ? limit : 200);
+ 		const resolvedSessionModel = resolveSessionModelRef(cfg, entry, resolveSessionAgentId({
+ 			sessionKey,
+ 			config: cfg
+ 		}));
+-		const localMessages = sessionId && storePath ? readSessionMessages(sessionId, storePath, entry?.sessionFile) : [];
++		const localMessages = sessionId && storePath ? readRecentSessionMessages(sessionId, storePath, entry?.sessionFile, max) : [];
+ 		const rawMessages = augmentChatHistoryWithCliSessionImports({
+ 			entry,
+ 			provider: resolvedSessionModel.provider,
+ 			localMessages
+ 		});
+-		const max = Math.min(1e3, typeof limit === "number" ? limit : 200);
+ 		const effectiveMaxChars = resolveEffectiveChatHistoryMaxChars(cfg, maxChars);
+ 		const normalized = augmentChatHistoryWithCanvasBlocks(sanitizeChatHistoryMessages(stripEnvelopeFromMessages(rawMessages.length > max ? rawMessages.slice(-max) : rawMessages), effectiveMaxChars));
+ 		const maxHistoryBytes = getMaxChatHistoryMessagesBytes();
+diff --git a/dist/session-utils.fs-CxNFMEBB.js b/dist/session-utils.fs-CxNFMEBB.js
+index 2e8afb50897696d8e3d0869c8c7d899f2cf935e0..f6a180022a73d3b88fbf5b6952023804625047fb 100644
+--- a/dist/session-utils.fs-CxNFMEBB.js
++++ b/dist/session-utils.fs-CxNFMEBB.js
+@@ -223,6 +223,29 @@ function attachOpenClawTranscriptMeta(message, meta) {
+ 		}
+ 	};
+ }
++function attachTranscriptLineMessage(parsed, messageSeq) {
++	if (parsed?.message) return attachOpenClawTranscriptMeta(parsed.message, {
++		...typeof parsed.id === "string" ? { id: parsed.id } : {},
++		...typeof messageSeq === "number" ? { seq: messageSeq } : {}
++	});
++	if (parsed?.type === "compaction") {
++		const ts = typeof parsed.timestamp === "string" ? Date.parse(parsed.timestamp) : NaN;
++		const timestamp = Number.isFinite(ts) ? ts : Date.now();
++		return {
++			role: "system",
++			content: [{
++				type: "text",
++				text: "Compaction"
++			}],
++			timestamp,
++			__openclaw: {
++				kind: "compaction",
++				id: typeof parsed.id === "string" ? parsed.id : void 0,
++				...typeof messageSeq === "number" ? { seq: messageSeq } : {}
++			}
++		};
++	}
++}
+ function readSessionMessages(sessionId, storePath, sessionFile) {
+ 	const filePath = resolveSessionTranscriptCandidates(sessionId, storePath, sessionFile).find((p) => fs.existsSync(p));
+ 	if (!filePath) return [];
+@@ -233,36 +256,64 @@ function readSessionMessages(sessionId, storePath, sessionFile) {
+ 		if (!line.trim()) continue;
+ 		try {
+ 			const parsed = JSON.parse(line);
+-			if (parsed?.message) {
+-				messageSeq += 1;
+-				messages.push(attachOpenClawTranscriptMeta(parsed.message, {
+-					...typeof parsed.id === "string" ? { id: parsed.id } : {},
+-					seq: messageSeq
+-				}));
+-				continue;
+-			}
+-			if (parsed?.type === "compaction") {
+-				const ts = typeof parsed.timestamp === "string" ? Date.parse(parsed.timestamp) : NaN;
+-				const timestamp = Number.isFinite(ts) ? ts : Date.now();
++			const message = attachTranscriptLineMessage(parsed, messageSeq + 1);
++			if (message) {
+ 				messageSeq += 1;
+-				messages.push({
+-					role: "system",
+-					content: [{
+-						type: "text",
+-						text: "Compaction"
+-					}],
+-					timestamp,
+-					__openclaw: {
+-						kind: "compaction",
+-						id: typeof parsed.id === "string" ? parsed.id : void 0,
+-						seq: messageSeq
+-					}
+-				});
++				messages.push(message);
+ 			}
+ 		} catch {}
+ 	}
+ 	return messages;
+ }
++const RECENT_SESSION_HISTORY_INITIAL_READ_BYTES = 256 * 1024;
++const RECENT_SESSION_HISTORY_MAX_READ_BYTES = 8 * 1024 * 1024;
++const RECENT_SESSION_HISTORY_MAX_SCAN_LINES = 5000;
++function parseRecentMessagesFromTailChunk(chunk, readStart, maxMessages) {
++	const lines = chunk.split(/\r?\n/);
++	if (readStart > 0) lines.shift();
++	const collected = [];
++	let scanned = 0;
++	for (let index = lines.length - 1; index >= 0; index -= 1) {
++		const line = lines[index];
++		if (!line?.trim()) continue;
++		scanned += 1;
++		if (scanned > RECENT_SESSION_HISTORY_MAX_SCAN_LINES) break;
++		try {
++			const message = attachTranscriptLineMessage(JSON.parse(line));
++			if (message) {
++				collected.push(message);
++				if (collected.length >= maxMessages) break;
++			}
++		} catch {}
++	}
++	return collected.toReversed();
++}
++function readRecentSessionMessages(sessionId, storePath, sessionFile, maxMessages) {
++	const filePath = resolveSessionTranscriptCandidates(sessionId, storePath, sessionFile).find((p) => fs.existsSync(p));
++	if (!filePath) return [];
++	const boundedMax = Math.max(1, Math.min(typeof maxMessages === "number" && Number.isFinite(maxMessages) ? Math.floor(maxMessages) : 200, 1000));
++	let fd = null;
++	try {
++		fd = fs.openSync(filePath, "r");
++		const size = fs.fstatSync(fd).size;
++		if (size === 0) return [];
++		let readBytes = Math.min(size, Math.max(RECENT_SESSION_HISTORY_INITIAL_READ_BYTES, boundedMax * 2048));
++		while (readBytes <= size) {
++			const readStart = Math.max(0, size - readBytes);
++			const readLen = size - readStart;
++			const buf = Buffer.alloc(readLen);
++			fs.readSync(fd, buf, 0, readLen, readStart);
++			const messages = parseRecentMessagesFromTailChunk(buf.toString("utf-8"), readStart, boundedMax);
++			if (messages.length >= boundedMax || readStart === 0 || readBytes >= RECENT_SESSION_HISTORY_MAX_READ_BYTES) return messages;
++			readBytes = Math.min(size, readBytes * 2);
++		}
++		return [];
++	} catch {
++		return readSessionMessages(sessionId, storePath, sessionFile).slice(-boundedMax);
++	} finally {
++		if (fd !== null) fs.closeSync(fd);
++	}
++}
+ function capArrayByJsonBytes(items, maxBytes) {
+ 	if (items.length === 0) return {
+ 		items,
+@@ -619,4 +670,4 @@ function readSessionPreviewItemsFromTranscript(sessionId, storePath, sessionFile
+ 	return [];
+ }
+ //#endregion
+-export { readSessionPreviewItemsFromTranscript as a, stripEnvelopeFromMessages as c, countToolResults as d, extractToolCallNames as f, readSessionMessages as i, stripEnvelope as l, capArrayByJsonBytes as n, readSessionTitleFieldsFromTranscript as o, jsonUtf8Bytes as p, readLatestSessionUsageFromTranscript as r, stripEnvelopeFromMessage as s, attachOpenClawTranscriptMeta as t, stripMessageIdHints as u };
++export { readSessionPreviewItemsFromTranscript as a, readRecentSessionMessages as b, stripEnvelopeFromMessages as c, countToolResults as d, extractToolCallNames as f, readSessionMessages as i, stripEnvelope as l, capArrayByJsonBytes as n, readSessionTitleFieldsFromTranscript as o, jsonUtf8Bytes as p, readLatestSessionUsageFromTranscript as r, stripEnvelopeFromMessage as s, attachOpenClawTranscriptMeta as t, stripMessageIdHints as u };
