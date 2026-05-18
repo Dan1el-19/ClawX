@@ -193,5 +193,10 @@
         "withinTwoWeeks": "两周内",
         "withinMonth": "一个月内",
         "older": "一个月之前"
+    },
+    "questionDirectory": {
+        "title": "问题目录",
+        "fallback": "问题 {{number}}",
+        "moreHint": "还有 {{count}} 个问题未显示"
     }
 }

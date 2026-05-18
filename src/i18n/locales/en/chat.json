@@ -193,5 +193,10 @@
         "withinTwoWeeks": "Within 2 Weeks",
         "withinMonth": "Within 1 Month",
         "older": "Older than 1 Month"
+    },
+    "questionDirectory": {
+        "title": "Question directory",
+        "fallback": "Question {{number}}",
+        "moreHint": "{{count}} more questions not shown"
     }
 }

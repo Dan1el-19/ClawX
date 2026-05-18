@@ -193,5 +193,10 @@
         "withinTwoWeeks": "В течение 2 недель",
         "withinMonth": "В течение месяца",
         "older": "Старее месяца"
+    },
+    "questionDirectory": {
+        "title": "Список вопросов",
+        "fallback": "Вопрос {{number}}",
+        "moreHint": "Ещё {{count}} вопросов не показано"
     }
 }

@@ -193,5 +193,10 @@
         "withinTwoWeeks": "2週間以内",
         "withinMonth": "1か月以内",
         "older": "1か月より前"
+    },
+    "questionDirectory": {
+        "title": "質問目次",
+        "fallback": "質問 {{number}}",
+        "moreHint": "さらに {{count}} 件の質問は表示されていません"
     }
 }
