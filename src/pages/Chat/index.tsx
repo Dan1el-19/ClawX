@@ -1024,9 +1024,6 @@ function QuestionDirectory({ items }: { items: QuestionDirectoryItem[] }) {
               )}
               title={item.title}
             >
-              <span className="mt-0.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-background text-2xs font-semibold text-muted-foreground ring-1 ring-border/70 group-hover:text-foreground">
-                {item.ordinal}
-              </span>
               <span className="line-clamp-2 min-w-0 text-xs leading-5">
                 {item.title}
               </span>
