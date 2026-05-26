@@ -1,4 +1,12 @@
-import { extractText, extractTextSegments, extractThinkingSegments, extractToolUse, isInternalAssistantReplyText } from './message-utils';
+import {
+  extractText,
+  extractTextSegments,
+  extractToolUse,
+  isGeneratingStatusNarration,
+  isInternalAssistantReplyText,
+  isInternalProcessNarration,
+} from './message-utils';
+import { isInternalMessage } from '@/stores/chat/helpers';
 import type { RawMessage, ToolStatus } from '@/stores/chat';
 
 export type TaskStepStatus = 'running' | 'completed' | 'error';
@@ -37,7 +45,9 @@ export function findReplyMessageIndex(messages: RawMessage[], hasStreamingReply:
   for (let idx = messages.length - 1; idx >= 0; idx -= 1) {
     const message = messages[idx];
     if (!message || message.role !== 'assistant') continue;
-    if (extractText(message).trim().length === 0) continue;
+    const replyText = extractText(message).trim();
+    if (replyText.length === 0 || isInternalAssistantReplyText(replyText)) continue;
+    if (isGeneratingStatusNarration(replyText)) continue;
     return idx;
   }
   return -1;
@@ -151,6 +161,7 @@ export function segmentHasFinalReply(segmentMessages: RawMessage[]): boolean {
     if (message.role !== 'assistant') return false;
     const replyText = extractText(message).trim();
     if (replyText.length === 0 || isInternalAssistantReplyText(replyText)) return false;
+    if (isGeneratingStatusNarration(replyText)) return false;
     const content = message.content;
     if (!Array.isArray(content)) return true;
     return !(content as Array<{ type?: string }>).some(
@@ -311,7 +322,8 @@ function appendDetailSegments(
 ): void {
   const normalizedSegments = segments
     .map((segment) => normalizeText(segment))
-    .filter((segment): segment is string => !!segment);
+    .filter((segment): segment is string => !!segment)
+    .filter((segment) => !isInternalProcessNarration(segment));
 
   normalizedSegments.forEach((detail, index) => {
     options.upsertStep({
@@ -362,31 +374,27 @@ export function deriveTaskSteps({
   for (const [messageIndex, message] of messages.entries()) {
     if (!message || message.role !== 'assistant') continue;
 
-    appendDetailSegments(extractThinkingSegments(message), {
-      idPrefix: `history-thinking-${message.id || messageIndex}`,
-      label: 'Thinking',
-      kind: 'thinking',
-      running: false,
-      upsertStep,
-    });
-
     const toolUses = extractToolUse(message);
-    // Fold any intermediate assistant text into the graph as a narration
-    // step — including text that lives on a mixed `text + toolCall` message.
-    // The narration step is emitted BEFORE the tool steps so the graph
-    // preserves the original ordering (the assistant "thinks out loud" and
-    // then invokes the tool).
-    const narrationSegments = extractTextSegments(message);
-    const graphNarrationSegments = messageIndex === replyIndex
-      ? narrationSegments.slice(0, -1)
-      : narrationSegments;
-    appendDetailSegments(graphNarrationSegments, {
-      idPrefix: `history-message-${message.id || messageIndex}`,
-      label: 'Message',
-      kind: 'message',
-      running: false,
-      upsertStep,
-    });
+    if (!isInternalMessage(message)) {
+      // Fold any intermediate assistant text into the graph as a narration
+      // step — including text that lives on a mixed `text + toolCall` message.
+      // The narration step is emitted BEFORE the tool steps so the graph
+      // preserves the original ordering (the assistant "thinks out loud" and
+      // then invokes the tool).
+      const narrationSegments = extractTextSegments(message);
+      const graphNarrationSegments = messageIndex === replyIndex
+        ? narrationSegments.slice(0, -1)
+        : narrationSegments;
+      appendDetailSegments(graphNarrationSegments, {
+        idPrefix: `history-message-${message.id || messageIndex}`,
+        label: 'Message',
+        kind: 'message',
+        running: false,
+        upsertStep,
+      });
+    } else if (toolUses.length === 0) {
+      continue;
+    }
 
     toolUses.forEach((tool, index) => {
       const input = tool.input as Record<string, unknown>;
@@ -404,19 +412,6 @@ export function deriveTaskSteps({
   }
 
   if (streamMessage) {
-    // When the reply is being rendered as a separate bubble
-    // (omitLastStreamingMessageSegment), thinking that accompanies
-    // the reply belongs to the bubble — omit it from the graph.
-    if (!omitLastStreamingMessageSegment) {
-      appendDetailSegments(extractThinkingSegments(streamMessage), {
-        idPrefix: 'stream-thinking',
-        label: 'Thinking',
-        kind: 'thinking',
-        running: true,
-        upsertStep,
-      });
-    }
-
     // Stream-time narration should also appear in the execution graph so that
     // intermediate process output stays in P1 instead of leaking into the
     // assistant reply area.

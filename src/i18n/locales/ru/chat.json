@@ -159,9 +159,13 @@
         "branchLabel": "ветвь",
         "thinkingLabel": "Думаю",
         "runErrorLabel": "Ошибка модели",
+        "imageGenerateLabel": "Генерация изображения",
         "agentRun": "Выполнение {{agent}}",
         "collapsedSummary": "Вызовов инструментов: {{toolCount}} · Промежуточных сообщений: {{processCount}}",
         "collapseAction": "Свернуть граф выполнения"
+    },
+    "imageGeneration": {
+        "generating": "Изображение генерируется, подождите…"
     },
     "composer": {
         "attachFiles": "Прикрепить файлы",

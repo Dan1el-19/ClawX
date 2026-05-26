@@ -7,6 +7,7 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertCircle, ArrowDownToLine, Loader2, Sparkles } from 'lucide-react';
 import { useChatStore, type RawMessage } from '@/stores/chat';
+import { isInternalMessage } from '@/stores/chat/helpers';
 import { buildBaselineRunKey, getBaseline } from '@/stores/baseline-cache';
 import { useGatewayStore } from '@/stores/gateway';
 import { useAgentsStore } from '@/stores/agents';
@@ -18,7 +19,7 @@ import { ChatMessage } from './ChatMessage';
 import { ChatInput } from './ChatInput';
 import { ExecutionGraphCard } from './ExecutionGraphCard';
 import { ChatToolbar } from './ChatToolbar';
-import { extractImages, extractText, extractThinking, extractToolUse, isInternalAssistantReplyText, normalizeMessageRole, stripProcessMessagePrefix } from './message-utils';
+import { extractImages, extractText, extractThinking, extractToolUse, isInternalAssistantReplyText, isInternalProcessNarration, normalizeMessageRole, stripProcessMessagePrefix } from './message-utils';
 import {
   buildRunSegmentMessageIndices,
   deriveTaskSteps,
@@ -30,6 +31,7 @@ import {
   segmentHasFinalReply,
   type TaskStep,
 } from './task-visualization';
+import { isImageGenerationPending } from './image-generation-status';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
 import { useStickToBottomInstant } from '@/hooks/use-stick-to-bottom-instant';
@@ -95,6 +97,14 @@ function getPrimaryMessageStepTexts(steps: TaskStep[]): string[] {
     .map((step) => step.detail!);
 }
 
+function sanitizeGraphSteps(steps: TaskStep[]): TaskStep[] {
+  return steps.filter((step) => {
+    if (step.kind === 'thinking') return false;
+    if (step.kind === 'message' && step.detail && isInternalProcessNarration(step.detail)) return false;
+    return true;
+  });
+}
+
 function buildQuestionDirectoryTitle(message: RawMessage, fallback: string): string {
   const normalized = extractText(message).replace(/\s+/g, ' ').trim();
   if (!normalized) return fallback;
@@ -103,6 +113,7 @@ function buildQuestionDirectoryTitle(message: RawMessage, fallback: string): str
 
 function isRealUserMessage(msg: RawMessage): boolean {
   if (normalizeMessageRole(msg.role) !== 'user') return false;
+  if (isInternalMessage(msg)) return false;
   const content = msg.content;
   if (!Array.isArray(content)) return true;
   // If every block in the content is a tool_result, this is a Gateway
@@ -497,7 +508,7 @@ export function Chat() {
       && streamTools.length === 0
       && !hasRunningStreamToolStatus;
 
-    let steps = buildSteps(rawStreamingReplyCandidate);
+    let steps = sanitizeGraphSteps(buildSteps(rawStreamingReplyCandidate));
     let streamingReplyText: string | null = null;
     if (rawStreamingReplyCandidate) {
       const trimmedReplyText = stripProcessMessagePrefix(streamText, getPrimaryMessageStepTexts(steps));
@@ -506,7 +517,7 @@ export function Chat() {
       if (hasReplyText || hasStreamImages) {
         streamingReplyText = hasReplyText ? trimmedReplyText : '';
       } else {
-        steps = buildSteps(false);
+        steps = sanitizeGraphSteps(buildSteps(false));
       }
     }
 
@@ -550,9 +561,9 @@ export function Chat() {
       // generated message steps that include accumulated narration + reply
       // text.  Strip these out — historical message steps (from messages[])
       // will be properly recomputed on the next render with fresh data.
-      const cleanedSteps = cached.steps.filter(
+      const cleanedSteps = sanitizeGraphSteps(cached.steps.filter(
         (s) => !(s.kind === 'message' && s.id.startsWith('stream-message')),
-      );
+      ));
       return [{
         triggerIndex: idx,
         replyIndex: cached.replyIndex,
@@ -643,6 +654,18 @@ export function Chat() {
     && !hasAnyStreamContent
     && (latestRunSegmentCompletion.hasToolActivity || !sending);
   const inputRunActive = (sending || hasActiveExecutionGraph) && !runSettledInHistory;
+  const pendingImageGeneration = useMemo(() => {
+    for (let idx = messages.length - 1; idx >= 0; idx -= 1) {
+      if (!isRealUserMessage(messages[idx]) || subagentCompletionInfos[idx]) continue;
+      const nextUserIndex = nextUserMessageIndexes[idx];
+      const postTrigger = getPostTriggerSegmentMessages(messages, idx, nextUserIndex);
+      return isImageGenerationPending(
+        postTrigger,
+        nextUserIndex === -1 ? streamingTools : [],
+      );
+    }
+    return false;
+  }, [messages, subagentCompletionInfos, nextUserMessageIndexes, streamingTools]);
   const replyTextOverrides = useMemo(() => {
     const map = new Map<number, string>();
     for (const card of userRunCards) {
@@ -829,6 +852,7 @@ export function Chat() {
                     </div>
                   )}
                   {messages.map((msg, idx) => {
+                    if (isInternalMessage(msg) && !hasUserFacingImageAttachments(msg)) return null;
                     const isFoldedNarration = foldedNarrationIndices.has(idx);
                     if (isFoldedNarration && !hasUserFacingImageAttachments(msg)) return null;
                     const suppressToolCards = runSegmentMessageIndices.has(idx);
@@ -953,8 +977,12 @@ export function Chat() {
                     <ActivityIndicator phase="tool_processing" />
                   )}
 
+                  {pendingImageGeneration && (
+                    <ImageGeneratingIndicator />
+                  )}
+
                   {/* Typing indicator when sending but no stream content yet */}
-                  {inputRunActive && !pendingFinal && !hasAnyStreamContent && !hasActiveExecutionGraph && (
+                  {inputRunActive && !pendingFinal && !hasAnyStreamContent && !hasActiveExecutionGraph && !pendingImageGeneration && (
                     <TypingIndicator />
                   )}
                 </>
@@ -1196,6 +1224,23 @@ function ActivityIndicator({ phase }: { phase: 'tool_processing' }) {
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
           <span>Processing tool results…</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ImageGeneratingIndicator() {
+  const { t } = useTranslation('chat');
+  return (
+    <div className="flex gap-3" data-testid="chat-image-generating-indicator">
+      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full mt-1 bg-black/5 dark:bg-white/5 text-foreground">
+        <Sparkles className="h-4 w-4" />
+      </div>
+      <div className="bg-black/5 dark:bg-white/5 text-foreground rounded-2xl px-4 py-3">
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+          <span>{t('imageGeneration.generating')}</span>
         </div>
       </div>
     </div>

@@ -138,6 +138,38 @@ describe('enrichWithToolResultFiles', () => {
     const paths = (reply._attachedFiles ?? []).map((f) => f.filePath);
     expect(paths).toContain('/tmp/foo.pdf');
   });
+
+  it('skips internal NO_REPLY turns when attaching pending tool-result files', () => {
+    const messages: RawMessage[] = [
+      {
+        role: 'assistant',
+        id: 'a1',
+        content: [{ type: 'toolCall', id: 'tc1', name: 'exec', input: { command: 'echo report > /tmp/report.pdf' } }],
+      },
+      {
+        role: 'toolresult',
+        id: 't1',
+        toolCallId: 'tc1',
+        toolName: 'exec',
+        content: [{ type: 'text', text: 'Wrote /tmp/report.pdf' }],
+      },
+      {
+        role: 'assistant',
+        id: 'no-reply',
+        content: [{ type: 'text', text: 'NO_REPLY' }],
+      },
+      {
+        role: 'assistant',
+        id: 'final',
+        content: [{ type: 'text', text: 'Report is ready.' }],
+      },
+    ];
+
+    const enriched = enrichWithToolResultFiles(messages);
+    const final = enriched.find((m) => m.id === 'final')!;
+    expect(final._attachedFiles?.map((file) => file.filePath)).toEqual(['/tmp/report.pdf']);
+    expect(enriched.find((m) => m.id === 'no-reply')?._attachedFiles ?? []).toEqual([]);
+  });
 });
 
 describe('enrichWithCachedImages — Gateway media bubble dedup', () => {
@@ -273,6 +305,44 @@ describe('enrichWithCachedImages — Gateway media bubble dedup', () => {
     const reply = enriched[0]!;
     const replyPaths = (reply._attachedFiles ?? []).map((f) => f.filePath);
     expect(replyPaths).toEqual(['/tmp/foo.png']);
+  });
+
+  it('promotes markdown local image paths to attached files', () => {
+    const messages: RawMessage[] = [
+      {
+        role: 'assistant',
+        id: 'reply',
+        content: [{
+          type: 'text',
+          text: '宇航员图片完成啦 🧑‍🚀✨\n\n![Astronaut with Milky Way in helmet visor](/Users/me/.openclaw/media/tool-image-generation/cat.png)',
+        }],
+      },
+    ];
+
+    const enriched = enrichWithCachedImages(messages);
+    expect(enriched[0]?._attachedFiles?.map((file) => file.filePath)).toEqual([
+      '/Users/me/.openclaw/media/tool-image-generation/cat.png',
+    ]);
+  });
+
+  it('promotes markdown gateway image URLs to gateway-media attachments', () => {
+    const messages: RawMessage[] = [
+      {
+        role: 'assistant',
+        id: 'reply',
+        content: [{
+          type: 'text',
+          text: 'Done\n\n![Astronaut with Milky Way in helmet visor](/api/chat/media/outgoing/agent%3Amain%3As-1/abc/full)',
+        }],
+      },
+    ];
+
+    const enriched = enrichWithCachedImages(messages);
+    expect(enriched[0]?._attachedFiles?.[0]).toMatchObject({
+      gatewayUrl: '/api/chat/media/outgoing/agent%3Amain%3As-1/abc/full',
+      source: 'gateway-media',
+      fileName: 'Astronaut with Milky Way in helmet visor',
+    });
   });
 });
 

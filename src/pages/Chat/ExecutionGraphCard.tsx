@@ -47,6 +47,9 @@ function StepDetailCard({ step }: { step: TaskStep }) {
   const isNarration = step.kind === 'message';
   const isTool = step.kind === 'tool';
   const isThinking = step.kind === 'thinking';
+  const displayToolLabel = isTool && step.label === 'image_generate'
+    ? t('executionGraph.imageGenerateLabel')
+    : step.label;
   // System steps (subagent branch roots etc.) share the tool row layout:
   // bold label + truncated single-line detail preview + click-to-expand,
   // i.e. no rounded card / no separate detail line below the title.
@@ -56,7 +59,7 @@ function StepDetailCard({ step }: { step: TaskStep }) {
   const hideStatusText = (isTool || isSystem) && step.status === 'completed';
   const detailPreview = step.detail?.replace(/\s+/g, ' ').trim();
   const canExpand = hasDetail;
-    const displayLabel = isThinking ? t('executionGraph.thinkingLabel') : step.label;
+    const displayLabel = isThinking ? t('executionGraph.thinkingLabel') : (isTool ? displayToolLabel : step.label);
 
   return (
     <div

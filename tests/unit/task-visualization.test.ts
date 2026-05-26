@@ -4,7 +4,7 @@ import { stripProcessMessagePrefix } from '@/pages/Chat/message-utils';
 import type { RawMessage, ToolStatus } from '@/stores/chat';
 
 describe('deriveTaskSteps', () => {
-  it('builds running steps from streaming thinking and tool status', () => {
+  it('builds running steps from streaming tool status without exposing chain-of-thought', () => {
     const streamingTools: ToolStatus[] = [
       {
         name: 'web_search',
@@ -27,12 +27,6 @@ describe('deriveTaskSteps', () => {
     });
 
     expect(steps).toEqual([
-      expect.objectContaining({
-        id: 'stream-thinking-0',
-        label: 'Thinking',
-        status: 'running',
-        kind: 'thinking',
-      }),
       expect.objectContaining({
         label: 'web_search',
         status: 'running',
@@ -160,7 +154,7 @@ describe('deriveTaskSteps', () => {
     }));
   });
 
-  it('keeps recent completed steps from assistant history', () => {
+  it('keeps recent completed tool steps from assistant history', () => {
     const messages: RawMessage[] = [
       {
         role: 'assistant',
@@ -180,12 +174,6 @@ describe('deriveTaskSteps', () => {
 
     expect(steps).toEqual([
       expect.objectContaining({
-        id: 'history-thinking-assistant-1-0',
-        label: 'Thinking',
-        status: 'completed',
-        kind: 'thinking',
-      }),
-      expect.objectContaining({
         id: 'tool-2',
         label: 'read_file',
         status: 'completed',
@@ -194,7 +182,7 @@ describe('deriveTaskSteps', () => {
     ]);
   });
 
-  it('splits cumulative streaming thinking into separate execution steps', () => {
+  it('does not expose streaming chain-of-thought in the execution graph', () => {
     const steps = deriveTaskSteps({
       messages: [],
       streamingMessage: {
@@ -208,21 +196,36 @@ describe('deriveTaskSteps', () => {
       streamingTools: [],
     });
 
+    expect(steps).toEqual([]);
+  });
+
+  it('skips internal assistant turns and hides NO_REPLY from the execution graph', () => {
+    const steps = deriveTaskSteps({
+      messages: [
+        {
+          role: 'assistant',
+          content: [{ type: 'thinking', thinking: 'Continue the OpenClaw runtime event internally.' }],
+        },
+        {
+          role: 'assistant',
+          content: [{ type: 'text', text: 'NO_REPLY' }],
+        },
+        {
+          role: 'assistant',
+          content: [
+            { type: 'tool_use', id: 'tool-image', name: 'image_generate', input: { prompt: 'astronaut' } },
+          ],
+        },
+      ],
+      streamingMessage: null,
+      streamingTools: [],
+    });
+
     expect(steps).toEqual([
       expect.objectContaining({
-        id: 'stream-thinking-0',
-        detail: 'Reviewing X.',
-        status: 'completed',
-      }),
-      expect.objectContaining({
-        id: 'stream-thinking-1',
-        detail: 'Comparing Y.',
-        status: 'completed',
-      }),
-      expect.objectContaining({
-        id: 'stream-thinking-2',
-        detail: 'Drafting answer.',
-        status: 'running',
+        id: 'tool-image',
+        label: 'image_generate',
+        kind: 'tool',
       }),
     ]);
   });

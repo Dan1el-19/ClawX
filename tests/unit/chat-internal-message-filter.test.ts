@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isInternalMessage } from '@/stores/chat/helpers';
+import { isInternalMessage, shouldDropMessageFromHistory } from '@/stores/chat/helpers';
 
 describe('chat internal message filter', () => {
   it('filters runtime system injection bundle like async exec completion payload', () => {
@@ -38,6 +38,49 @@ describe('chat internal message filter', () => {
     expect(isInternalMessage({
       role: 'user',
       content: '[Inter-session message] sourceSession=image_generate:abc sourceTool=image_generate',
+    })).toBe(true);
+  });
+
+  it('filters OpenClaw runtime continuation prompts', () => {
+    expect(isInternalMessage({ role: 'user', content: 'Continue the OpenClaw runtime event.' })).toBe(true);
+  });
+
+  it('filters runtime continuation prompts stored on msg.text', () => {
+    expect(isInternalMessage({
+      role: 'user',
+      content: [],
+      text: 'Continue the OpenClaw runtime event.',
+    })).toBe(true);
+  });
+
+  it('filters interim image-generation status narration', () => {
+    expect(isInternalMessage({
+      role: 'assistant',
+      content: '生成中，稍等 👨‍🚀',
+    })).toBe(true);
+  });
+
+  it('keeps assistant tool-call turns in history even when narration is internal', () => {
+    expect(shouldDropMessageFromHistory({
+      role: 'assistant',
+      content: [
+        { type: 'text', text: '生成中，稍等 👨‍🚀' },
+        { type: 'tool_use', id: 'tool-image', name: 'image_generate', input: { prompt: 'astronaut' } },
+      ],
+    })).toBe(false);
+    expect(isInternalMessage({
+      role: 'assistant',
+      content: [
+        { type: 'text', text: '生成中，稍等 👨‍🚀' },
+        { type: 'tool_use', id: 'tool-image', name: 'image_generate', input: { prompt: 'astronaut' } },
+      ],
+    })).toBe(true);
+  });
+
+  it('filters assistant turns that only contain chain-of-thought', () => {
+    expect(isInternalMessage({
+      role: 'assistant',
+      content: [{ type: 'thinking', thinking: 'The user is asking me to continue with an OpenClaw runtime event.' }],
     })).toBe(true);
   });
 });
