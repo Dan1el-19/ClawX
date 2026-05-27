@@ -110,6 +110,7 @@
       "apikeyMode": "APIキー",
       "loginPrompt": "このプロバイダーはブラウザからのサインインが必要です。",
       "loginButton": "ブラウザでログイン",
+      "getApiKey": "API キーを取得",
       "waiting": "待機中...",
       "openLoginPage": "ログインページを開く",
       "waitingApproval": "ブラウザの承認を待っています...",
@@ -176,6 +177,7 @@
       "download": "更新をダウンロード",
       "install": "インストールして再起動",
       "cancelAutoInstall": "キャンセル",
+      "later": "後で",
       "retry": "再試行",
       "check": "更新を確認"
     },
@@ -214,7 +216,9 @@
       }
     },
     "devMode": "開発者モード",
-    "devModeDesc": "開発者ツールとショートカットを表示"
+    "devModeDesc": "開発者ツールとショートカットを表示",
+    "telemetry": "匿名利用データ",
+    "telemetryDesc": "ClawX 改善のため、匿名の基本的な利用データの提供を許可します"
   },
   "developer": {
     "title": "開発者",
