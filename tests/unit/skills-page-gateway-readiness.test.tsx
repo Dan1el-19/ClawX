@@ -9,8 +9,10 @@ const setSkillsEnabledMock = vi.fn();
 const searchSkillsMock = vi.fn();
 const installSkillMock = vi.fn();
 const uninstallSkillMock = vi.fn();
-const invokeIpcMock = vi.fn();
-const hostApiFetchMock = vi.fn();
+const clawhubCapabilityMock = vi.fn();
+const clawhubOpenSkillPathMock = vi.fn();
+const openclawGetSkillsDirMock = vi.fn();
+const shellOpenExternalMock = vi.fn();
 
 const { gatewayState, skillsState } = vi.hoisted(() => ({
   gatewayState: {
@@ -48,12 +50,19 @@ vi.mock('@/stores/gateway', () => ({
   useGatewayStore: (selector: (state: typeof gatewayState) => unknown) => selector(gatewayState),
 }));
 
-vi.mock('@/lib/api-client', () => ({
-  invokeIpc: (...args: unknown[]) => invokeIpcMock(...args),
-}));
-
 vi.mock('@/lib/host-api', () => ({
-  hostApiFetch: (...args: unknown[]) => hostApiFetchMock(...args),
+  hostApi: {
+    openclaw: {
+      getSkillsDir: () => openclawGetSkillsDirMock(),
+    },
+    shell: {
+      openExternal: (...args: unknown[]) => shellOpenExternalMock(...args),
+    },
+    skills: {
+      clawhubCapability: () => clawhubCapabilityMock(),
+      clawhubOpenSkillPath: (...args: unknown[]) => clawhubOpenSkillPathMock(...args),
+    },
+  },
 }));
 
 vi.mock('@/lib/telemetry', () => ({
@@ -87,16 +96,10 @@ describe('Skills page gateway readiness', () => {
     vi.clearAllMocks();
     gatewayState.status = { state: 'running', port: 18789, gatewayReady: true };
     skillsState.skills = [];
-    invokeIpcMock.mockResolvedValue('/tmp/.openclaw/skills');
-    hostApiFetchMock.mockImplementation((path: unknown) => {
-      if (path === '/api/skills/marketplace/capability') {
-        return Promise.resolve({ success: true, capability: { canSearch: false, canInstall: false } });
-      }
-      if (path === '/api/clawhub/open-path') {
-        return Promise.resolve({ success: true });
-      }
-      return Promise.resolve({ success: true });
-    });
+    openclawGetSkillsDirMock.mockResolvedValue('/tmp/.openclaw/skills');
+    shellOpenExternalMock.mockResolvedValue(undefined);
+    clawhubCapabilityMock.mockResolvedValue({ success: true, capability: { canSearch: false, canInstall: false } });
+    clawhubOpenSkillPathMock.mockResolvedValue({ success: true });
     fetchSkillsMock.mockResolvedValue(true);
   });
 
@@ -117,7 +120,7 @@ describe('Skills page gateway readiness', () => {
     expect(screen.queryByTestId('skills-gateway-banner')).not.toBeInTheDocument();
   });
 
-  it('shows a starting banner while the running gateway still cannot serve skills data', async () => {
+  it('keeps startup readiness feedback out of the Skills page banner', async () => {
     fetchSkillsMock.mockResolvedValue(false);
     gatewayState.status = { state: 'running', port: 18789, gatewayReady: false };
     render(<Skills />);
@@ -128,7 +131,7 @@ describe('Skills page gateway readiness', () => {
     });
 
     expect(fetchSkillsMock).toHaveBeenCalledTimes(1);
-    expect(screen.getByTestId('skills-gateway-banner')).toHaveAttribute('data-state', 'starting');
+    expect(screen.queryByTestId('skills-gateway-banner')).not.toBeInTheDocument();
   });
 
   it('still fetches local skills when the gateway is stopped', async () => {

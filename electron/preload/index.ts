@@ -3,6 +3,19 @@
  * Exposes safe APIs to the renderer process via contextBridge
  */
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
+import type { HostRequest } from '@shared/host-api/types';
+import { HOST_EVENT_CHANNELS } from '@shared/host-events/contract';
+
+const validStaticEventChannels: Set<string> = new Set(
+  Object.values(HOST_EVENT_CHANNELS).flatMap((moduleChannels) => Object.values(moduleChannels)),
+);
+const DYNAMIC_CHANNEL_EVENT_RE = /^channel:[a-z0-9_-]+-(?:qr|success|error)$/i;
+
+function isValidEventChannel(channel: string): boolean {
+  return validStaticEventChannels.has(channel)
+    || DYNAMIC_CHANNEL_EVENT_RE.test(channel)
+    || channel.startsWith('ext:');
+}
 
 /**
  * IPC renderer methods exposed to the renderer process
@@ -16,34 +29,19 @@ const electronAPI = {
       const validChannels = [
         // Gateway
         'gateway:status',
-        'gateway:isConnected',
-        'gateway:start',
-        'gateway:stop',
-        'gateway:restart',
-        'gateway:rpc',
-        'gateway:httpProxy',
-        'hostapi:fetch',
-        'hostapi:token',
-        'gateway:health',
-        'gateway:getControlUiUrl',
         // OpenClaw
         'openclaw:status',
-        'openclaw:isReady',
         // Shell
         'shell:openExternal',
         'shell:showItemInFolder',
         'shell:openPath',
         // Dialog
         'dialog:open',
-        'dialog:save',
         'dialog:message',
         // App
         'app:version',
         'app:name',
-        'app:getPath',
         'app:platform',
-        'app:quit',
-        'app:relaunch',
         'app:request',
         // Window controls
         'window:minimize',
@@ -84,51 +82,6 @@ const electronAPI = {
         'provider:setDefault',
         'provider:getDefault',
         'provider:validateKey',
-        'provider:requestOAuth',
-        'provider:cancelOAuth',
-        // Cron
-        'cron:list',
-        'cron:create',
-        'cron:update',
-        'cron:delete',
-        'cron:toggle',
-        'cron:trigger',
-        // Channel Config
-        'channel:saveConfig',
-        'channel:getConfig',
-        'channel:getFormValues',
-        'channel:deleteConfig',
-        'channel:listConfigured',
-        'channel:setEnabled',
-        'channel:validate',
-        'channel:validateCredentials',
-        // WhatsApp
-        'channel:requestWhatsAppQr',
-        'channel:cancelWhatsAppQr',
-        // ClawHub
-        'clawhub:search',
-        'clawhub:install',
-        'clawhub:uninstall',
-        'clawhub:list',
-        'clawhub:openSkillReadme',
-        // UV
-        'uv:check',
-        'uv:install-all',
-        // Skill config (direct file access)
-        'skill:updateConfig',
-        'skill:getConfig',
-        'skill:getAllConfigs',
-        // Logs
-        'log:getRecent',
-        'log:readFile',
-        'log:getFilePath',
-        'log:getDir',
-        'log:listFiles',
-        // File staging & media
-        'file:stage',
-        'file:stageBuffer',
-        'media:getThumbnails',
-        'media:saveImage',
         // File preview (sandboxed read/write/list/tree)
         'file:readText',
         'file:readBinary',
@@ -136,14 +89,7 @@ const electronAPI = {
         'file:stat',
         'file:listDir',
         'file:listTree',
-        // Chat send with media (reads staged files in main process)
-        'chat:sendWithMedia',
-        // Session management
-        'session:delete',
-        'session:rename',
         // OpenClaw extras
-        'openclaw:getDir',
-        'openclaw:getConfigDir',
         'openclaw:getSkillsDir',
         'openclaw:getCliCommand',
       ];
@@ -159,40 +105,7 @@ const electronAPI = {
      * Listen for events from main process
      */
     on: (channel: string, callback: (...args: unknown[]) => void) => {
-      const validChannels = [
-        'gateway:status-changed',
-        'gateway:message',
-        'gateway:notification',
-        'gateway:health-changed',
-        'gateway:presence-changed',
-        'gateway:channel-status',
-        'gateway:chat-message',
-        'chat:runtime-event',
-        'channel:whatsapp-qr',
-        'channel:whatsapp-success',
-        'channel:whatsapp-error',
-        'channel:wechat-qr',
-        'channel:wechat-success',
-        'channel:wechat-error',
-        'gateway:exit',
-        'gateway:error',
-        'navigate',
-        'update:status-changed',
-        'update:checking',
-        'update:available',
-        'update:not-available',
-        'update:progress',
-        'update:downloaded',
-        'update:error',
-        'update:auto-install-countdown',
-        'cron:updated',
-        'oauth:code',
-        'oauth:success',
-        'oauth:error',
-        'openclaw:cli-installed',
-      ];
-
-      if (validChannels.includes(channel) || channel.startsWith('ext:')) {
+      if (isValidEventChannel(channel)) {
         const subscription = (_event: Electron.IpcRendererEvent, ...args: unknown[]) => {
           callback(...args);
         };
@@ -211,38 +124,7 @@ const electronAPI = {
      * Listen for a single event from main process
      */
     once: (channel: string, callback: (...args: unknown[]) => void) => {
-      const validChannels = [
-        'gateway:status-changed',
-        'gateway:message',
-        'gateway:notification',
-        'gateway:health-changed',
-        'gateway:presence-changed',
-        'gateway:channel-status',
-        'gateway:chat-message',
-        'chat:runtime-event',
-        'channel:whatsapp-qr',
-        'channel:whatsapp-success',
-        'channel:whatsapp-error',
-        'channel:wechat-qr',
-        'channel:wechat-success',
-        'channel:wechat-error',
-        'gateway:exit',
-        'gateway:error',
-        'navigate',
-        'update:status-changed',
-        'update:checking',
-        'update:available',
-        'update:not-available',
-        'update:progress',
-        'update:downloaded',
-        'update:error',
-        'update:auto-install-countdown',
-        'oauth:code',
-        'oauth:success',
-        'oauth:error',
-      ];
-
-      if (validChannels.includes(channel) || channel.startsWith('ext:')) {
+      if (isValidEventChannel(channel)) {
         ipcRenderer.once(channel, (_event, ...args) => callback(...args));
         return;
       }
@@ -286,8 +168,13 @@ const electronAPI = {
   isDev: process.env.NODE_ENV === 'development' || !!process.env.VITE_DEV_SERVER_URL,
 };
 
+const clawxAPI = {
+  hostInvoke: (request: HostRequest) => ipcRenderer.invoke('host:invoke', request),
+};
+
 // Expose the API to the renderer process
 contextBridge.exposeInMainWorld('electron', electronAPI);
+contextBridge.exposeInMainWorld('clawx', clawxAPI);
 
 // Type declarations for the renderer process
 export type ElectronAPI = typeof electronAPI;

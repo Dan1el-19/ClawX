@@ -1,9 +1,29 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const invokeIpcMock = vi.fn();
+const gatewayRpcMock = vi.fn();
+const sessionDeleteMock = vi.fn();
+const sessionRenameMock = vi.fn();
 
-vi.mock('@/lib/api-client', () => ({
-  invokeIpc: (...args: unknown[]) => invokeIpcMock(...args),
+vi.mock('@/lib/host-api', () => ({
+  hostApi: {
+    gateway: {
+      rpc: async (method: string, params?: unknown, timeoutMs?: number) => {
+        const result = await gatewayRpcMock(method, params, timeoutMs) as {
+          success?: boolean;
+          result?: unknown;
+          error?: string;
+        };
+        if (result?.success === false) {
+          throw new Error(result.error || `RPC ${method} failed`);
+        }
+        return result?.result;
+      },
+    },
+    sessions: {
+      delete: (id: string) => sessionDeleteMock(id),
+      rename: (id: string, title: string) => sessionRenameMock(id, title),
+    },
+  },
 }));
 
 type ChatLikeState = {
@@ -54,7 +74,9 @@ function makeHarness(initial?: Partial<ChatLikeState>) {
 describe('chat session actions', () => {
   beforeEach(() => {
     vi.resetAllMocks();
-    invokeIpcMock.mockResolvedValue({ success: true });
+    gatewayRpcMock.mockResolvedValue({ success: true });
+    sessionDeleteMock.mockResolvedValue({ success: true });
+    sessionRenameMock.mockResolvedValue({ success: true });
   });
 
   it('switchSession preserves non-main session that has activity history', async () => {
@@ -111,7 +133,7 @@ describe('chat session actions', () => {
 
     await actions.deleteSession('agent:foo:session-a');
     const next = h.read();
-    expect(invokeIpcMock).toHaveBeenCalledWith('session:delete', 'agent:foo:session-a');
+    expect(sessionDeleteMock).toHaveBeenCalledWith('agent:foo:session-a');
     expect(next.currentSessionKey).toBe('agent:foo:main');
     expect(next.sessions.map((s) => s.key)).toEqual(['agent:foo:main']);
     expect(next.sessionLabels['agent:foo:session-a']).toBeUndefined();
@@ -151,7 +173,7 @@ describe('chat session actions', () => {
     });
     const actions = createSessionActions(h.set as never, h.get as never);
 
-    invokeIpcMock.mockResolvedValueOnce({
+    gatewayRpcMock.mockResolvedValueOnce({
       success: true,
       result: {
         sessions: [
@@ -192,7 +214,7 @@ describe('chat session actions', () => {
     });
     const actions = createSessionActions(h.set as never, h.get as never);
 
-    invokeIpcMock.mockResolvedValueOnce({
+    gatewayRpcMock.mockResolvedValueOnce({
       success: true,
       result: {
         sessions: [{
@@ -229,7 +251,7 @@ describe('chat session actions', () => {
     });
     const actions = createSessionActions(h.set as never, h.get as never);
 
-    invokeIpcMock.mockResolvedValueOnce({
+    gatewayRpcMock.mockResolvedValueOnce({
       success: true,
       result: {
         sessions: [{
@@ -250,4 +272,3 @@ describe('chat session actions', () => {
     expect(next.lastUserMessageAt).toBe(2000);
   });
 });
-

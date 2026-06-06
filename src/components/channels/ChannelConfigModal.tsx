@@ -20,9 +20,10 @@ import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
 import { useChannelsStore } from '@/stores/channels';
 
-import { hostApiFetch } from '@/lib/host-api';
-import { subscribeHostEvent } from '@/lib/host-events';
+import { hostApi } from '@/lib/host-api';
+import { hostEvents } from '@/lib/host-events';
 import { cn } from '@/lib/utils';
+import type { ChannelErrorEvent, ChannelQrEvent, ChannelSuccessEvent } from '@shared/host-events/contract';
 import {
   CHANNEL_ICONS,
   CHANNEL_NAMES,
@@ -33,7 +34,6 @@ import {
   type ChannelConfigField,
 } from '@/types/channel';
 import {
-  buildQrChannelEventName,
   isCanonicalOpenClawAccountId,
   usesPluginManagedQrAccounts,
 } from '@/lib/channel-alias';
@@ -157,9 +157,9 @@ export function ChannelConfigModal({
 
     (async () => {
       try {
-        const accountParam = accountIdForConfigLoad ? `?accountId=${encodeURIComponent(accountIdForConfigLoad)}` : '';
-        const result = await hostApiFetch<{ success: boolean; values?: Record<string, string> }>(
-          `/api/channels/config/${encodeURIComponent(selectedType)}${accountParam}`
+        const result = await hostApi.channels.formValues(
+          selectedType,
+          accountIdForConfigLoad,
         );
         if (cancelled) return;
 
@@ -233,23 +233,22 @@ export function ChannelConfigModal({
     if (!selectedType || meta?.connectionType !== 'qr') return;
     const channelType = selectedType;
 
-    const onQr = (...args: unknown[]) => {
-      const data = args[0] as { qr?: string; raw?: string };
+    const onQr = (data: ChannelQrEvent) => {
       const nextQr = normalizeQrImageSource(data);
       if (!nextQr) return;
       setQrCode(nextQr);
       setConnecting(false);
     };
 
-    const onSuccess = async (...args: unknown[]) => {
-      const data = args[0] as { accountId?: string } | undefined;
+    const onSuccess = async (data: ChannelSuccessEvent) => {
       void data?.accountId;
       toast.success(translateRef.current('toast.qrConnected', { name: CHANNEL_NAMES[channelType] }));
       try {
         if (channelType === 'whatsapp') {
-          const saveResult = await hostApiFetch<{ success?: boolean; error?: string }>('/api/channels/config', {
-            method: 'POST',
-            body: JSON.stringify({ channelType: 'whatsapp', config: { enabled: true }, accountId: resolvedAccountId }),
+          const saveResult = await hostApi.channels.saveConfig({
+            channelType: 'whatsapp',
+            config: { enabled: true },
+            accountId: resolvedAccountId,
           });
           if (!saveResult?.success) {
             throw new Error(saveResult?.error || 'Failed to save WhatsApp config');
@@ -269,27 +268,25 @@ export function ChannelConfigModal({
       }
     };
 
-    const onError = (...args: unknown[]) => {
-      const err = typeof args[0] === 'string'
-        ? args[0]
-        : String((args[0] as { message?: string } | undefined)?.message || args[0]);
+    const onError = (payload: ChannelErrorEvent) => {
+      const err = typeof payload === 'string'
+        ? payload
+        : String(payload.message || payload);
       toast.error(translateRef.current('toast.qrFailed', { name: CHANNEL_NAMES[channelType], error: err }));
       setQrCode(null);
       setConnecting(false);
     };
 
-    const removeQrListener = subscribeHostEvent(buildQrChannelEventName(channelType, 'qr'), onQr);
-    const removeSuccessListener = subscribeHostEvent(buildQrChannelEventName(channelType, 'success'), onSuccess);
-    const removeErrorListener = subscribeHostEvent(buildQrChannelEventName(channelType, 'error'), onError);
+    const removeQrListener = hostEvents.onChannelQr(channelType, onQr);
+    const removeSuccessListener = hostEvents.onChannelSuccess(channelType, onSuccess);
+    const removeErrorListener = hostEvents.onChannelError(channelType, onError);
 
     return () => {
       removeQrListener();
       removeSuccessListener();
       removeErrorListener();
-      hostApiFetch(`/api/channels/${encodeURIComponent(channelType)}/cancel`, {
-        method: 'POST',
-        body: JSON.stringify(resolvedAccountId ? { accountId: resolvedAccountId } : {}),
-      }).catch(() => { });
+      hostApi.channels.cancelLogin(channelType, resolvedAccountId ? { accountId: resolvedAccountId } : undefined)
+        .catch(() => { });
     };
   }, [meta?.connectionType, resolvedAccountId, selectedType]);
 
@@ -300,16 +297,7 @@ export function ChannelConfigModal({
     setValidationResult(null);
 
     try {
-      const result = await hostApiFetch<{
-        success: boolean;
-        valid?: boolean;
-        errors?: string[];
-        warnings?: string[];
-        details?: Record<string, string>;
-      }>('/api/channels/credentials/validate', {
-        method: 'POST',
-        body: JSON.stringify({ channelType: selectedType, config: configValues }),
-      });
+      const result = await hostApi.channels.validateCredentials(selectedType, configValues);
 
       const warnings = result.warnings || [];
       if (result.valid && result.details) {
@@ -370,24 +358,12 @@ export function ChannelConfigModal({
       }
 
       if (meta.connectionType === 'qr') {
-        await hostApiFetch(`/api/channels/${encodeURIComponent(selectedType)}/start`, {
-          method: 'POST',
-          body: JSON.stringify(resolvedAccountId ? { accountId: resolvedAccountId } : {}),
-        });
+        await hostApi.channels.startLogin(selectedType, resolvedAccountId ? { accountId: resolvedAccountId } : undefined);
         return;
       }
 
       if (meta.connectionType === 'token' && shouldUseCredentialValidation) {
-        const validationResponse = await hostApiFetch<{
-          success: boolean;
-          valid?: boolean;
-          errors?: string[];
-          warnings?: string[];
-          details?: Record<string, string>;
-        }>('/api/channels/credentials/validate', {
-          method: 'POST',
-          body: JSON.stringify({ channelType: selectedType, config: configValues }),
-        });
+        const validationResponse = await hostApi.channels.validateCredentials(selectedType, configValues);
 
         if (!validationResponse.valid) {
           setValidationResult({
@@ -415,14 +391,7 @@ export function ChannelConfigModal({
       }
 
       const config: Record<string, unknown> = { ...configValues };
-      const saveResult = await hostApiFetch<{
-        success?: boolean;
-        error?: string;
-        warning?: string;
-      }>('/api/channels/config', {
-        method: 'POST',
-        body: JSON.stringify({ channelType: selectedType, config, accountId: resolvedAccountId }),
-      });
+      const saveResult = await hostApi.channels.saveConfig({ channelType: selectedType, config, accountId: resolvedAccountId });
       if (!saveResult?.success) {
         throw new Error(saveResult?.error || 'Failed to save channel config');
       }

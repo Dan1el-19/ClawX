@@ -22,6 +22,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { Separator } from '@/components/ui/separator';
 import {
   useProviderStore,
@@ -44,16 +45,15 @@ import {
   buildProviderAccountId,
   buildProviderListItems,
   hasConfiguredCredentials,
-  isHostApiRouteMissing,
   type ProviderListItem,
 } from '@/lib/provider-accounts';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
-import { invokeIpc } from '@/lib/api-client';
 import { useSettingsStore } from '@/stores/settings';
-import { hostApiFetch } from '@/lib/host-api';
-import { subscribeHostEvent } from '@/lib/host-events';
+import { hostApi } from '@/lib/host-api';
+import { hostEvents } from '@/lib/host-events';
+import type { OAuthCodeEvent, OAuthErrorEvent, OAuthSuccessEvent } from '@shared/host-events/contract';
 
 const inputClasses = 'h-[44px] rounded-xl font-mono text-meta bg-transparent border-black/10 dark:border-white/10 focus-visible:ring-2 focus-visible:ring-blue-500/50 focus-visible:border-blue-500 shadow-sm transition-all text-foreground placeholder:text-foreground/40';
 const labelClasses = 'text-sm text-foreground/80 font-bold';
@@ -96,34 +96,6 @@ function getUserAgentHeader(headers?: Record<string, string>): string {
     }
   }
   return '';
-}
-
-/**
- * Wrap `hostApiFetch` for OAuth provider routes so we always try the new
- * `/api/provider-accounts/oauth/...` endpoints first and fall back to the
- * legacy `/api/providers/oauth/...` paths when running against an older
- * Host API build that returns a "no route for" body for the new routes.
- *
- * This keeps the renderer compatible with both:
- *   - Newer Host APIs that have migrated OAuth under provider-accounts.
- *   - Older Host APIs that only expose the legacy provider-namespace OAuth.
- */
-async function hostApiFetchOAuth<T = unknown>(path: string, init?: RequestInit): Promise<T> {
-  const legacyPath = path.replace('/api/provider-accounts/oauth/', '/api/providers/oauth/');
-  let result: T;
-  try {
-    result = await hostApiFetch<T>(path, init);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (!/404|not\s+found/i.test(message) || legacyPath === path) {
-      throw error;
-    }
-    return await hostApiFetch<T>(legacyPath, init);
-  }
-  if (isHostApiRouteMissing(result) && legacyPath !== path) {
-    return await hostApiFetch<T>(legacyPath, init);
-  }
-  return result;
 }
 
 function mergeHeadersWithUserAgent(
@@ -337,16 +309,15 @@ export function ProvidersSettings() {
       )}
 
       {/* Add Provider Dialog */}
-      {showAddDialog && (
-        <AddProviderDialog
-          existingVendorIds={existingVendorIds}
-          vendors={vendors}
-          onClose={() => setShowAddDialog(false)}
-          onAdd={handleAddProvider}
-          onValidateKey={(type, key, options) => validateAccountApiKey(type, key, options)}
-          devModeUnlocked={devModeUnlocked}
-        />
-      )}
+      <AddProviderDialog
+        open={showAddDialog}
+        existingVendorIds={existingVendorIds}
+        vendors={vendors}
+        onClose={() => setShowAddDialog(false)}
+        onAdd={handleAddProvider}
+        onValidateKey={(type, key, options) => validateAccountApiKey(type, key, options)}
+        devModeUnlocked={devModeUnlocked}
+      />
     </div>
   );
 }
@@ -941,6 +912,7 @@ function ProviderCard({
 }
 
 interface AddProviderDialogProps {
+  open: boolean;
   existingVendorIds: Set<string>;
   vendors: ProviderVendorInfo[];
   onClose: () => void;
@@ -965,6 +937,7 @@ interface AddProviderDialogProps {
 }
 
 function AddProviderDialog({
+  open,
   existingVendorIds,
   vendors,
   onClose,
@@ -1003,6 +976,32 @@ function AddProviderDialog({
   // For providers that support both OAuth and API key, let the user choose.
   // Default to the vendor's declared auth mode instead of hard-coding OAuth.
   const [authMode, setAuthMode] = useState<'oauth' | 'apikey'>('apikey');
+  const [prevOpen, setPrevOpen] = useState(open);
+  const pendingOAuthRef = React.useRef<{ accountId: string; label: string } | null>(null);
+
+  if (prevOpen !== open) {
+    setPrevOpen(open);
+    if (open) {
+      setSelectedType(null);
+      setName('');
+      setApiKey('');
+      setBaseUrl('');
+      setModelId('');
+      setApiProtocol('openai-completions');
+      setShowAdvancedConfig(false);
+      setUserAgent('');
+      setArkMode('apikey');
+      setShowKey(false);
+      setSaving(false);
+      setValidationError(null);
+      setOauthFlowing(false);
+      setOauthData(null);
+      setManualCodeInput('');
+      setOauthError(null);
+      setAuthMode('apikey');
+      pendingOAuthRef.current = null;
+    }
+  }
 
   const typeInfo = PROVIDER_TYPE_INFO.find((t) => t.id === selectedType);
   const providerDocsUrl = getProviderDocsUrl(typeInfo, i18n.language);
@@ -1060,40 +1059,41 @@ function AddProviderDialog({
 
   // Keep refs to the latest values so event handlers see the current dialog state.
   const latestRef = React.useRef({ selectedType, typeInfo, onAdd, onClose, t });
-  const pendingOAuthRef = React.useRef<{ accountId: string; label: string } | null>(null);
   useEffect(() => {
     latestRef.current = { selectedType, typeInfo, onAdd, onClose, t };
   });
 
   // Manage OAuth events
   useEffect(() => {
-    const handleCode = (data: unknown) => {
-      const payload = data as Record<string, unknown>;
-      if (payload?.mode === 'manual') {
+    if (!open) {
+      return;
+    }
+
+    const handleCode = (payload: OAuthCodeEvent) => {
+      if ('mode' in payload && payload.mode === 'manual') {
         setOauthData({
           mode: 'manual',
-          authorizationUrl: String(payload.authorizationUrl || ''),
-          message: typeof payload.message === 'string' ? payload.message : undefined,
+          authorizationUrl: payload.authorizationUrl,
+          message: payload.message,
         });
       } else {
         setOauthData({
           mode: 'device',
-          verificationUri: String(payload.verificationUri || ''),
-          userCode: String(payload.userCode || ''),
-          expiresIn: Number(payload.expiresIn || 300),
+          verificationUri: payload.verificationUri,
+          userCode: payload.userCode,
+          expiresIn: payload.expiresIn,
         });
       }
       setOauthError(null);
     };
 
-    const handleSuccess = async (data: unknown) => {
+    const handleSuccess = async (payload: OAuthSuccessEvent) => {
       setOauthFlowing(false);
       setOauthData(null);
       setManualCodeInput('');
       setValidationError(null);
 
       const { onClose: close, t: translate } = latestRef.current;
-      const payload = (data as { accountId?: string } | undefined) || undefined;
       const accountId = payload?.accountId || pendingOAuthRef.current?.accountId;
 
       // device-oauth.ts already saved the provider config to the backend,
@@ -1118,22 +1118,22 @@ function AddProviderDialog({
       toast.success(translate('aiProviders.toast.added'));
     };
 
-    const handleError = (data: unknown) => {
-      setOauthError((data as { message: string }).message);
+    const handleError = (data: OAuthErrorEvent) => {
+      setOauthError(data.message);
       setOauthData(null);
       pendingOAuthRef.current = null;
     };
 
-    const offCode = subscribeHostEvent('oauth:code', handleCode);
-    const offSuccess = subscribeHostEvent('oauth:success', handleSuccess);
-    const offError = subscribeHostEvent('oauth:error', handleError);
+    const offCode = hostEvents.onOAuthCode(handleCode);
+    const offSuccess = hostEvents.onOAuthSuccess(handleSuccess);
+    const offError = hostEvents.onOAuthError(handleError);
 
     return () => {
       offCode();
       offSuccess();
       offError();
     };
-  }, []);
+  }, [open]);
 
   const handleStartOAuth = async () => {
     if (!selectedType) return;
@@ -1155,9 +1155,10 @@ function AddProviderDialog({
       const accountId = supportsMultipleAccounts ? `${selectedType}-${crypto.randomUUID()}` : selectedType;
       const label = name || (typeInfo?.id === 'custom' ? t('aiProviders.custom') : typeInfo?.name) || selectedType;
       pendingOAuthRef.current = { accountId, label };
-      await hostApiFetchOAuth('/api/provider-accounts/oauth/start', {
-        method: 'POST',
-        body: JSON.stringify({ provider: selectedType, accountId, label }),
+      await hostApi.providers.requestOAuth({
+        ['provider']: selectedType,
+        accountId,
+        label,
       });
     } catch (e) {
       setOauthError(String(e));
@@ -1172,19 +1173,14 @@ function AddProviderDialog({
     setManualCodeInput('');
     setOauthError(null);
     pendingOAuthRef.current = null;
-    await hostApiFetchOAuth('/api/provider-accounts/oauth/cancel', {
-      method: 'POST',
-    });
+    await hostApi.providers.cancelOAuth();
   };
 
   const handleSubmitManualOAuthCode = async () => {
     const value = manualCodeInput.trim();
     if (!value) return;
     try {
-      await hostApiFetchOAuth('/api/provider-accounts/oauth/submit', {
-        method: 'POST',
-        body: JSON.stringify({ code: value }),
-      });
+      await hostApi.providers.submitOAuth({ code: value });
       setOauthError(null);
     } catch (error) {
       setOauthError(String(error));
@@ -1271,13 +1267,18 @@ function AddProviderDialog({
   };
 
   return (
-    <div data-testid="add-provider-dialog" className="fixed inset-0 z-50 bg-black/30 dark:bg-black/60 flex items-center justify-center p-4">
-      <Card className="w-full max-w-2xl max-h-[90vh] flex flex-col rounded-3xl border-0 shadow-2xl bg-surface-modal overflow-hidden">
+    <Dialog open={open} onOpenChange={(nextOpen) => !nextOpen && onClose()}>
+      <DialogContent asChild className="w-[calc(100%-2rem)] max-w-2xl max-h-[90vh] flex flex-col rounded-3xl border-0 shadow-2xl bg-surface-modal overflow-hidden">
+        <Card data-testid="add-provider-dialog">
         <CardHeader className="relative pb-2 shrink-0">
-          <CardTitle className="text-2xl font-serif font-normal">{t('aiProviders.dialog.title')}</CardTitle>
-          <CardDescription className="text-sm mt-1 text-foreground/70">
-            {t('aiProviders.dialog.desc')}
-          </CardDescription>
+          <DialogTitle asChild>
+            <CardTitle className="text-2xl font-serif font-normal">{t('aiProviders.dialog.title')}</CardTitle>
+          </DialogTitle>
+          <DialogDescription asChild>
+            <CardDescription className="text-sm mt-1 text-foreground/70">
+              {t('aiProviders.dialog.desc')}
+            </CardDescription>
+          </DialogDescription>
           <Button
             data-testid="add-provider-close-button"
             variant="ghost"
@@ -1377,6 +1378,7 @@ function AddProviderDialog({
                 {isOAuth && supportsApiKey && !oauthUiHidden && (
                   <div className="flex rounded-xl border border-black/10 dark:border-white/10 overflow-hidden text-meta font-medium shadow-sm bg-transparent p-1 gap-1">
                     <button
+                      data-testid="add-provider-auth-oauth-tab"
                       onClick={() => setAuthMode('oauth')}
                       className={cn(
                         'flex-1 py-2 px-3 rounded-lg transition-colors',
@@ -1386,6 +1388,7 @@ function AddProviderDialog({
                       {t('aiProviders.oauth.loginMode')}
                     </button>
                     <button
+                      data-testid="add-provider-auth-apikey-tab"
                       onClick={() => setAuthMode('apikey')}
                       className={cn(
                         'flex-1 py-2 px-3 rounded-lg transition-colors',
@@ -1586,6 +1589,7 @@ function AddProviderDialog({
                         {t('aiProviders.oauth.loginPrompt')}
                       </p>
                       <Button
+                        data-testid="add-provider-oauth-login-button"
                         onClick={handleStartOAuth}
                         disabled={oauthFlowing}
                         className="w-full rounded-full h-[42px] font-semibold bg-brand hover:bg-brand-hover text-white shadow-sm"
@@ -1631,7 +1635,7 @@ function AddProviderDialog({
                               <Button
                                 variant="secondary"
                                 className="w-full rounded-full h-[42px] font-semibold"
-                                onClick={() => invokeIpc('shell:openExternal', oauthData.authorizationUrl)}
+                                onClick={() => hostApi.shell.openExternal(oauthData.authorizationUrl)}
                               >
                                 <ExternalLink className="h-4 w-4 mr-2" />
                                 Open Authorization Page
@@ -1687,7 +1691,7 @@ function AddProviderDialog({
                               <Button
                                 variant="secondary"
                                 className="w-full rounded-full h-[42px] font-semibold"
-                                onClick={() => invokeIpc('shell:openExternal', oauthData.verificationUri)}
+                                onClick={() => hostApi.shell.openExternal(oauthData.verificationUri)}
                               >
                                 <ExternalLink className="h-4 w-4 mr-2" />
                                 {t('aiProviders.oauth.openLoginPage')}
@@ -1729,6 +1733,7 @@ function AddProviderDialog({
           )}
         </CardContent>
       </Card>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

@@ -1,9 +1,23 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
-const invokeIpcMock = vi.fn();
+const gatewayRpcMock = vi.fn();
 
-vi.mock('@/lib/api-client', () => ({
-  invokeIpc: (...args: unknown[]) => invokeIpcMock(...args),
+vi.mock('@/lib/host-api', () => ({
+  hostApi: {
+    gateway: {
+      rpc: async (method: string, params?: unknown, timeoutMs?: number) => {
+        const result = await gatewayRpcMock(
+          method,
+          params,
+          timeoutMs,
+        ) as { success?: boolean; result?: unknown; error?: string };
+        if (result?.success === false) {
+          throw new Error(result.error || `RPC ${method} failed`);
+        }
+        return result?.result;
+      },
+    },
+  },
 }));
 
 vi.mock('@/stores/chat/helpers', () => ({
@@ -18,7 +32,7 @@ describe('session label fetch concurrency', () => {
   });
 
   it('skips sessions with existing frontend or backend labels', async () => {
-    invokeIpcMock.mockImplementation(async (_channel: string, method: string) => {
+    gatewayRpcMock.mockImplementation(async (method: string) => {
       if (method === 'sessions.list') {
         return {
           success: true,
@@ -61,12 +75,12 @@ describe('session label fetch concurrency', () => {
     await actions.loadSessions();
     await new Promise((resolve) => setTimeout(resolve, 10));
 
-    const chatHistoryCalls = invokeIpcMock.mock.calls.filter(([, method]) => method === 'chat.history');
+    const chatHistoryCalls = gatewayRpcMock.mock.calls.filter(([method]) => method === 'chat.history');
     expect(chatHistoryCalls).toHaveLength(0);
   });
 
   it('does not re-request unchanged sessions after an empty hydration result', async () => {
-    invokeIpcMock.mockImplementation(async (_channel: string, method: string) => {
+    gatewayRpcMock.mockImplementation(async (method: string) => {
       if (method === 'sessions.list') {
         return {
           success: true,
@@ -110,13 +124,13 @@ describe('session label fetch concurrency', () => {
     await actions.loadSessions();
     await new Promise((resolve) => setTimeout(resolve, 10));
 
-    const chatHistoryCalls = invokeIpcMock.mock.calls.filter(([, method]) => method === 'chat.history');
+    const chatHistoryCalls = gatewayRpcMock.mock.calls.filter(([method]) => method === 'chat.history');
     expect(chatHistoryCalls).toHaveLength(1);
   });
 
   it('re-requests a session when updatedAt changes after an empty result', async () => {
     let updatedAt = 1000;
-    invokeIpcMock.mockImplementation(async (_channel: string, method: string) => {
+    gatewayRpcMock.mockImplementation(async (method: string) => {
       if (method === 'sessions.list') {
         return {
           success: true,
@@ -161,7 +175,7 @@ describe('session label fetch concurrency', () => {
     await actions.loadSessions();
     await new Promise((resolve) => setTimeout(resolve, 10));
 
-    const chatHistoryCalls = invokeIpcMock.mock.calls.filter(([, method]) => method === 'chat.history');
+    const chatHistoryCalls = gatewayRpcMock.mock.calls.filter(([method]) => method === 'chat.history');
     expect(chatHistoryCalls).toHaveLength(2);
   });
 });

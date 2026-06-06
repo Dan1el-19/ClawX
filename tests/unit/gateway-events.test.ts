@@ -1,7 +1,30 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const hostApiFetchMock = vi.fn();
-const subscribeHostEventMock = vi.fn();
+const hostApiMock = vi.hoisted(() => ({
+  gateway: {
+    status: vi.fn(),
+    start: vi.fn(),
+    stop: vi.fn(),
+    restart: vi.fn(),
+    health: vi.fn(),
+    controlUi: vi.fn(),
+    rpc: vi.fn(),
+  },
+  settings: {
+    getAll: vi.fn(),
+    get: vi.fn(),
+    set: vi.fn(),
+    setMany: vi.fn(),
+    reset: vi.fn(),
+  },
+  logs: {
+    recent: vi.fn(),
+    dir: vi.fn(),
+    listFiles: vi.fn(),
+    readFile: vi.fn(),
+  },
+}));
+const hostEventSubscriptionMock = vi.fn();
 
 function flushAsyncImports(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
@@ -18,25 +41,34 @@ function deferred<T>() {
 }
 
 vi.mock('@/lib/host-api', () => ({
-  hostApiFetch: (...args: unknown[]) => hostApiFetchMock(...args),
+  hostApi: hostApiMock,
 }));
 
 vi.mock('@/lib/host-events', () => ({
-  subscribeHostEvent: (...args: unknown[]) => subscribeHostEventMock(...args),
+  hostEvents: {
+    onGatewayStatus: (handler: unknown) => hostEventSubscriptionMock('gateway:status', handler),
+    onGatewayError: (handler: unknown) => hostEventSubscriptionMock('gateway:error', handler),
+    onGatewayNotification: (handler: unknown) => hostEventSubscriptionMock('gateway:notification', handler),
+    onGatewayHealth: (handler: unknown) => hostEventSubscriptionMock('gateway:health', handler),
+    onGatewayPresence: (handler: unknown) => hostEventSubscriptionMock('gateway:presence', handler),
+    onGatewayChatMessage: (handler: unknown) => hostEventSubscriptionMock('gateway:chat-message', handler),
+    onChatRuntimeEvent: (handler: unknown) => hostEventSubscriptionMock('chat:runtime-event', handler),
+    onGatewayChannelStatus: (handler: unknown) => hostEventSubscriptionMock('gateway:channel-status', handler),
+  },
 }));
 
 describe('gateway store event wiring', () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
-    hostApiFetchMock.mockResolvedValue({ state: 'running', port: 18789 });
+    hostApiMock.gateway.status.mockResolvedValue({ state: 'running', port: 18789 });
   });
 
-  it('subscribes to host events through subscribeHostEvent on init', async () => {
-    hostApiFetchMock.mockResolvedValueOnce({ state: 'running', port: 18789 });
+  it('subscribes to typed host events on init', async () => {
+    hostApiMock.gateway.status.mockResolvedValueOnce({ state: 'running', port: 18789 });
 
     const handlers = new Map<string, (payload: unknown) => void>();
-    subscribeHostEventMock.mockImplementation((eventName: string, handler: (payload: unknown) => void) => {
+    hostEventSubscriptionMock.mockImplementation((eventName: string, handler: (payload: unknown) => void) => {
       handlers.set(eventName, handler);
       return () => {};
     });
@@ -44,14 +76,14 @@ describe('gateway store event wiring', () => {
     const { useGatewayStore } = await import('@/stores/gateway');
     await useGatewayStore.getState().init();
 
-    expect(subscribeHostEventMock).toHaveBeenCalledWith('gateway:status', expect.any(Function));
-    expect(subscribeHostEventMock).toHaveBeenCalledWith('gateway:error', expect.any(Function));
-    expect(subscribeHostEventMock).toHaveBeenCalledWith('gateway:notification', expect.any(Function));
-    expect(subscribeHostEventMock).toHaveBeenCalledWith('gateway:health', expect.any(Function));
-    expect(subscribeHostEventMock).toHaveBeenCalledWith('gateway:presence', expect.any(Function));
-    expect(subscribeHostEventMock).toHaveBeenCalledWith('gateway:chat-message', expect.any(Function));
-    expect(subscribeHostEventMock).toHaveBeenCalledWith('chat:runtime-event', expect.any(Function));
-    expect(subscribeHostEventMock).toHaveBeenCalledWith('gateway:channel-status', expect.any(Function));
+    expect(hostEventSubscriptionMock).toHaveBeenCalledWith('gateway:status', expect.any(Function));
+    expect(hostEventSubscriptionMock).toHaveBeenCalledWith('gateway:error', expect.any(Function));
+    expect(hostEventSubscriptionMock).toHaveBeenCalledWith('gateway:notification', expect.any(Function));
+    expect(hostEventSubscriptionMock).toHaveBeenCalledWith('gateway:health', expect.any(Function));
+    expect(hostEventSubscriptionMock).toHaveBeenCalledWith('gateway:presence', expect.any(Function));
+    expect(hostEventSubscriptionMock).toHaveBeenCalledWith('gateway:chat-message', expect.any(Function));
+    expect(hostEventSubscriptionMock).toHaveBeenCalledWith('chat:runtime-event', expect.any(Function));
+    expect(hostEventSubscriptionMock).toHaveBeenCalledWith('gateway:channel-status', expect.any(Function));
 
     handlers.get('gateway:status')?.({ state: 'stopped', port: 18789 });
     expect(useGatewayStore.getState().status.state).toBe('stopped');
@@ -64,10 +96,10 @@ describe('gateway store event wiring', () => {
   });
 
   it('propagates gatewayReady field from status events', async () => {
-    hostApiFetchMock.mockResolvedValueOnce({ state: 'running', port: 18789, gatewayReady: false });
+    hostApiMock.gateway.status.mockResolvedValueOnce({ state: 'running', port: 18789, gatewayReady: false });
 
     const handlers = new Map<string, (payload: unknown) => void>();
-    subscribeHostEventMock.mockImplementation((eventName: string, handler: (payload: unknown) => void) => {
+    hostEventSubscriptionMock.mockImplementation((eventName: string, handler: (payload: unknown) => void) => {
       handlers.set(eventName, handler);
       return () => {};
     });
@@ -84,10 +116,10 @@ describe('gateway store event wiring', () => {
   });
 
   it('treats undefined gatewayReady as ready for backwards compatibility', async () => {
-    hostApiFetchMock.mockResolvedValueOnce({ state: 'running', port: 18789 });
+    hostApiMock.gateway.status.mockResolvedValueOnce({ state: 'running', port: 18789 });
 
     const handlers = new Map<string, (payload: unknown) => void>();
-    subscribeHostEventMock.mockImplementation((eventName: string, handler: (payload: unknown) => void) => {
+    hostEventSubscriptionMock.mockImplementation((eventName: string, handler: (payload: unknown) => void) => {
       handlers.set(eventName, handler);
       return () => {};
     });
@@ -103,7 +135,7 @@ describe('gateway store event wiring', () => {
 
   it('does not clear chat sending state on non-terminal runtime events', async () => {
     const handlers = new Map<string, (payload: unknown) => void>();
-    subscribeHostEventMock.mockImplementation((eventName: string, handler: (payload: unknown) => void) => {
+    hostEventSubscriptionMock.mockImplementation((eventName: string, handler: (payload: unknown) => void) => {
       handlers.set(eventName, handler);
       return () => {};
     });
@@ -147,12 +179,12 @@ describe('gateway store event wiring', () => {
   it('does not let a stale send RPC re-arm a completed run after a newer send starts', async () => {
     let now = 1773281731000;
     const nowSpy = vi.spyOn(Date, 'now').mockImplementation(() => now);
-    const firstSend = deferred<{ success: boolean; result?: { runId?: string } }>();
-    const secondSend = deferred<{ success: boolean; result?: { runId?: string } }>();
+    const firstSend = deferred<{ runId?: string }>();
+    const secondSend = deferred<{ runId?: string }>();
     const sendPromises = [firstSend.promise, secondSend.promise];
-    hostApiFetchMock.mockImplementation((path: string) => {
-      if (path === '/api/chat/send') return sendPromises.shift();
-      return Promise.resolve({ success: true, result: {} });
+    hostApiMock.gateway.rpc.mockImplementation((method: string) => {
+      if (method === 'chat.send') return sendPromises.shift();
+      return Promise.resolve({});
     });
 
     const { useChatStore } = await import('@/stores/chat');
@@ -188,12 +220,12 @@ describe('gateway store event wiring', () => {
     expect(useChatStore.getState().sending).toBe(true);
     expect(useChatStore.getState().lastUserMessageAt).toBe(1773281732000);
 
-    firstSend.resolve({ success: true, result: { runId: 'run-first' } });
+    firstSend.resolve({ runId: 'run-first' });
     await first;
     expect(useChatStore.getState().activeRunId).not.toBe('run-first');
     expect(useChatStore.getState().lastUserMessageAt).toBe(1773281732000);
 
-    secondSend.resolve({ success: true, result: { runId: 'run-second' } });
+    secondSend.resolve({ runId: 'run-second' });
     await second;
     expect(useChatStore.getState().activeRunId).toBe('run-second');
 
@@ -233,7 +265,7 @@ describe('gateway store event wiring', () => {
 
   it('retains inactive-session runtime events for graph reconstruction after switching back', async () => {
     const handlers = new Map<string, (payload: unknown) => void>();
-    subscribeHostEventMock.mockImplementation((eventName: string, handler: (payload: unknown) => void) => {
+    hostEventSubscriptionMock.mockImplementation((eventName: string, handler: (payload: unknown) => void) => {
       handlers.set(eventName, handler);
       return () => {};
     });
@@ -284,7 +316,7 @@ describe('gateway store event wiring', () => {
 
   it('clears cached inactive-session run state when run.ended arrives while another session is selected', async () => {
     const handlers = new Map<string, (payload: unknown) => void>();
-    subscribeHostEventMock.mockImplementation((eventName: string, handler: (payload: unknown) => void) => {
+    hostEventSubscriptionMock.mockImplementation((eventName: string, handler: (payload: unknown) => void) => {
       handlers.set(eventName, handler);
       return () => {};
     });
@@ -327,7 +359,7 @@ describe('gateway store event wiring', () => {
 
   it('clears chat sending state on terminal run.ended runtime event', async () => {
     const handlers = new Map<string, (payload: unknown) => void>();
-    subscribeHostEventMock.mockImplementation((eventName: string, handler: (payload: unknown) => void) => {
+    hostEventSubscriptionMock.mockImplementation((eventName: string, handler: (payload: unknown) => void) => {
       handlers.set(eventName, handler);
       return () => {};
     });
@@ -364,7 +396,7 @@ describe('gateway store event wiring', () => {
 
   it('does not clear the active send when a stale run.ended arrives for the same session', async () => {
     const handlers = new Map<string, (payload: unknown) => void>();
-    subscribeHostEventMock.mockImplementation((eventName: string, handler: (payload: unknown) => void) => {
+    hostEventSubscriptionMock.mockImplementation((eventName: string, handler: (payload: unknown) => void) => {
       handlers.set(eventName, handler);
       return () => {};
     });
@@ -400,7 +432,7 @@ describe('gateway store event wiring', () => {
 
   it('ignores session-less runtime terminals that do not match the active run', async () => {
     const handlers = new Map<string, (payload: unknown) => void>();
-    subscribeHostEventMock.mockImplementation((eventName: string, handler: (payload: unknown) => void) => {
+    hostEventSubscriptionMock.mockImplementation((eventName: string, handler: (payload: unknown) => void) => {
       handlers.set(eventName, handler);
       return () => {};
     });
@@ -435,7 +467,7 @@ describe('gateway store event wiring', () => {
 
   it('tracks a current-session run.started even when the optimistic send is already active', async () => {
     const handlers = new Map<string, (payload: unknown) => void>();
-    subscribeHostEventMock.mockImplementation((eventName: string, handler: (payload: unknown) => void) => {
+    hostEventSubscriptionMock.mockImplementation((eventName: string, handler: (payload: unknown) => void) => {
       handlers.set(eventName, handler);
       return () => {};
     });
@@ -466,7 +498,7 @@ describe('gateway store event wiring', () => {
 
   it('forces a terminal history reload when the runtime emits run.ended', async () => {
     const handlers = new Map<string, (payload: unknown) => void>();
-    subscribeHostEventMock.mockImplementation((eventName: string, handler: (payload: unknown) => void) => {
+    hostEventSubscriptionMock.mockImplementation((eventName: string, handler: (payload: unknown) => void) => {
       handlers.set(eventName, handler);
       return () => {};
     });
@@ -511,7 +543,7 @@ describe('gateway store event wiring', () => {
 
   it('forwards normalized chat runtime events through the dedicated host event channel', async () => {
     const handlers = new Map<string, (payload: unknown) => void>();
-    subscribeHostEventMock.mockImplementation((eventName: string, handler: (payload: unknown) => void) => {
+    hostEventSubscriptionMock.mockImplementation((eventName: string, handler: (payload: unknown) => void) => {
       handlers.set(eventName, handler);
       return () => {};
     });
@@ -566,7 +598,7 @@ describe('gateway store event wiring', () => {
 
   it('passes progressive delta notifications without seq through to chat store', async () => {
     const handlers = new Map<string, (payload: unknown) => void>();
-    subscribeHostEventMock.mockImplementation((eventName: string, handler: (payload: unknown) => void) => {
+    hostEventSubscriptionMock.mockImplementation((eventName: string, handler: (payload: unknown) => void) => {
       handlers.set(eventName, handler);
       return () => {};
     });
@@ -615,7 +647,7 @@ describe('gateway store event wiring', () => {
 
   it('dedupes exact replayed delta notifications without seq', async () => {
     const handlers = new Map<string, (payload: unknown) => void>();
-    subscribeHostEventMock.mockImplementation((eventName: string, handler: (payload: unknown) => void) => {
+    hostEventSubscriptionMock.mockImplementation((eventName: string, handler: (payload: unknown) => void) => {
       handlers.set(eventName, handler);
       return () => {};
     });

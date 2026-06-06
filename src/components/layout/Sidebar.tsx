@@ -24,8 +24,10 @@ import {
   ImagePlus,
   Moon,
   ChevronRight,
+  Loader2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { isGatewayRestarting } from '@/lib/gateway-status';
 import { rendererExtensionRegistry } from '@/extensions/registry';
 import { useSettingsStore } from '@/stores/settings';
 import { useChatStore } from '@/stores/chat';
@@ -36,11 +38,11 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
-import { hostApiFetch } from '@/lib/host-api';
-import { invokeIpc } from '@/lib/api-client';
-import { SIDEBAR_COLLAPSED_WIDTH, MAC_SIDEBAR_CHROME_HEIGHT } from '../../../shared/sidebar-layout';
+import { hostApi } from '@/lib/host-api';
+import { SIDEBAR_COLLAPSED_WIDTH, MAC_SIDEBAR_CHROME_HEIGHT } from '@shared/sidebar-layout';
 import { useTranslation } from 'react-i18next';
 import logoSvg from '@/assets/logo.svg';
+import { useNewChatAction } from './use-new-chat-action';
 
 interface NavItemProps {
   to: string;
@@ -117,15 +119,16 @@ export function Sidebar() {
   const sessionLabels = useChatStore((s) => s.sessionLabels);
   const sessionLastActivity = useChatStore((s) => s.sessionLastActivity);
   const switchSession = useChatStore((s) => s.switchSession);
-  const newSession = useChatStore((s) => s.newSession);
   const deleteSession = useChatStore((s) => s.deleteSession);
   const renameSession = useChatStore((s) => s.renameSession);
   const loadSessions = useChatStore((s) => s.loadSessions);
   const loadHistory = useChatStore((s) => s.loadHistory);
+  const handleNewChat = useNewChatAction();
 
   const gatewayStatus = useGatewayStore((s) => s.status);
   const isGatewayRunning = gatewayStatus.state === 'running';
   const isGatewayReady = isGatewayRunning && gatewayStatus.gatewayReady !== false;
+  const gatewayRestarting = isGatewayRestarting(gatewayStatus);
   const gatewayRuntimeKey = `${gatewayStatus.pid ?? 'none'}:${gatewayStatus.connectedAt ?? 'none'}:${gatewayStatus.port}`;
 
   const hasLoadedCurrentRuntimeRef = useRef(false);
@@ -153,7 +156,7 @@ export function Sidebar() {
 
   useEffect(() => {
     if (!isMac) return;
-    void invokeIpc('window:syncTrafficLightPosition', sidebarCollapsed);
+    void hostApi.window.syncTrafficLightPosition(sidebarCollapsed);
   }, [isMac, sidebarCollapsed]);
 
   const navigate = useNavigate();
@@ -162,13 +165,9 @@ export function Sidebar() {
   const getSessionLabel = (key: string, displayName?: string, label?: string) =>
     sessionLabels[key] ?? label ?? displayName ?? key;
 
-  const openControlUi = async (path: string, label: string) => {
+  const openControlUi = async (view?: 'dreams', label = 'OpenClaw Page') => {
     try {
-      const result = await hostApiFetch<{
-        success: boolean;
-        url?: string;
-        error?: string;
-      }>(path);
+      const result = await hostApi.gateway.controlUi(view);
       if (result.success && result.url) {
         await window.electron.openExternal(result.url);
       } else {
@@ -180,11 +179,12 @@ export function Sidebar() {
   };
 
   const openDevConsole = async () => {
-    await openControlUi('/api/gateway/control-ui', 'OpenClaw Page');
+    await openControlUi(undefined, 'OpenClaw Page');
   };
 
   const { t } = useTranslation(['common', 'chat']);
   const [sessionToDelete, setSessionToDelete] = useState<{ key: string; label: string } | null>(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [editingSessionKey, setEditingSessionKey] = useState<string | null>(null);
   const [editingLabel, setEditingLabel] = useState('');
   const [nowMs, setNowMs] = useState(INITIAL_NOW_MS);
@@ -202,6 +202,12 @@ export function Sidebar() {
   useEffect(() => {
     void fetchAgents();
   }, [fetchAgents]);
+
+  useEffect(() => {
+    if (deleteDialogOpen || !sessionToDelete) return;
+    const timer = window.setTimeout(() => setSessionToDelete(null), 160);
+    return () => window.clearTimeout(timer);
+  }, [deleteDialogOpen, sessionToDelete]);
 
   const handleStartRename = (key: string, currentLabel: string) => {
     setEditingSessionKey(key);
@@ -388,11 +394,7 @@ export function Sidebar() {
         <button
           type="button"
           data-testid="sidebar-new-chat"
-          onClick={() => {
-            const { messages } = useChatStore.getState();
-            if (messages.length > 0) newSession();
-            navigate('/');
-          }}
+          onClick={handleNewChat}
           className={cn(
             'sidebar-nav-text flex items-center gap-2 rounded-lg px-2.5 py-2 transition-colors',
             'hover:bg-black/5 dark:hover:bg-white/5 text-foreground/80',
@@ -515,6 +517,7 @@ export function Sidebar() {
                               <Pencil className="h-3.5 w-3.5" />
                             </button>
                             <button
+                              data-testid={`sidebar-session-delete-${s.key}`}
                               aria-label={t('common:sidebar.deleteSession')}
                               onClick={(e) => {
                                 e.stopPropagation();
@@ -522,6 +525,7 @@ export function Sidebar() {
                                   key: s.key,
                                   label: sessionLabel,
                                 });
+                                setDeleteDialogOpen(true);
                               }}
                               className="flex items-center justify-center rounded p-0.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
                             >
@@ -541,6 +545,34 @@ export function Sidebar() {
 
       {/* Footer */}
       <div className="mt-auto flex flex-col gap-1 p-2">
+        <div
+          data-testid="sidebar-gateway-restarting"
+          data-state={gatewayRestarting ? 'visible' : 'hidden'}
+          aria-hidden={!gatewayRestarting}
+          className={cn(
+            'overflow-hidden transition-[max-height,opacity,transform] duration-200 ease-out',
+            gatewayRestarting ? 'max-h-12 translate-y-0 opacity-100' : 'max-h-0 translate-y-1 opacity-0',
+          )}
+        >
+          <div
+            aria-live="polite"
+            aria-label={t('common:gateway.restarting')}
+            title={t('common:gateway.restarting')}
+            className={cn(
+              'sidebar-nav-text flex items-center gap-2 rounded-lg px-2.5 py-1.5',
+              'border border-yellow-500/20 bg-yellow-500/10 text-yellow-700 dark:text-yellow-400',
+              sidebarCollapsed && 'justify-center px-0',
+            )}
+          >
+            <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+            {!sidebarCollapsed && (
+              <span className="flex-1 overflow-hidden text-ellipsis whitespace-nowrap">
+                {t('common:gateway.restarting')}
+              </span>
+            )}
+          </div>
+        </div>
+
         <NavLink
             to="/settings"
             data-testid="sidebar-nav-settings"
@@ -605,19 +637,20 @@ export function Sidebar() {
       )}
 
       <ConfirmDialog
-        open={!!sessionToDelete}
+        open={deleteDialogOpen}
         title={t('common:actions.confirm')}
-        message={t('common:sidebar.deleteSessionConfirm', { label: sessionToDelete?.label })}
+        message={t('common:sidebar.deleteSessionConfirm', { label: sessionToDelete?.label ?? '' })}
         confirmLabel={t('common:actions.delete')}
         cancelLabel={t('common:actions.cancel')}
         variant="destructive"
         onConfirm={async () => {
-          if (!sessionToDelete) return;
-          await deleteSession(sessionToDelete.key);
-          if (currentSessionKey === sessionToDelete.key) navigate('/');
-          setSessionToDelete(null);
+          const targetSession = sessionToDelete;
+          if (!targetSession) return;
+          await deleteSession(targetSession.key);
+          if (currentSessionKey === targetSession.key) navigate('/');
+          setDeleteDialogOpen(false);
         }}
-        onCancel={() => setSessionToDelete(null)}
+        onCancel={() => setDeleteDialogOpen(false)}
       />
     </aside>
   );

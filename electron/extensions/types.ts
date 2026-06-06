@@ -1,8 +1,6 @@
-import type { IncomingMessage, ServerResponse } from 'http';
 import type { BrowserWindow } from 'electron';
 import type { GatewayManager } from '../gateway/manager';
-import type { HostEventBus } from '../api/event-bus';
-import type { HostApiContext } from '../api/context';
+import type { HostApiContribution, HostApiContributionRegistrar } from '../main/ipc/host-contract';
 import type {
   MarketplaceSearchParams,
   MarketplaceInstallParams,
@@ -12,27 +10,16 @@ import type {
   ClawHubSkillResult,
 } from '../gateway/clawhub';
 
-export type RouteHandler = (
-  req: IncomingMessage,
-  res: ServerResponse,
-  url: URL,
-  ctx: HostApiContext,
-) => Promise<boolean>;
-
 export interface ExtensionContext {
   gatewayManager: GatewayManager;
-  eventBus: HostEventBus;
   getMainWindow: () => BrowserWindow | null;
+  hostApi: HostApiContributionRegistrar;
 }
 
 export interface Extension {
   id: string;
   setup(ctx: ExtensionContext): void | Promise<void>;
   teardown?(): void | Promise<void>;
-}
-
-export interface HostApiRouteExtension extends Extension {
-  getRouteHandler(): RouteHandler;
 }
 
 export interface MarketplaceCapability {
@@ -46,6 +33,10 @@ export interface MarketplaceProviderExtension extends Extension {
   getCapability(): Promise<MarketplaceCapability>;
   search(params: MarketplaceSearchParams): Promise<MarketplaceSkillResult[]>;
   install(params: MarketplaceInstallParams): Promise<void>;
+}
+
+export interface HostApiProviderExtension extends Extension {
+  getHostApiContributions(ctx: ExtensionContext): HostApiContribution[];
 }
 
 export type LegacyMarketplaceSearchParams = ClawHubSearchParams;
@@ -63,12 +54,13 @@ export interface AuthProviderExtension extends Extension {
   onStartup?(mainWindow: BrowserWindow): Promise<void>;
 }
 
-export function isHostApiRouteExtension(ext: Extension): ext is HostApiRouteExtension {
-  return 'getRouteHandler' in ext && typeof (ext as HostApiRouteExtension).getRouteHandler === 'function';
-}
-
 export function isMarketplaceProviderExtension(ext: Extension): ext is MarketplaceProviderExtension {
   return 'getCapability' in ext && 'search' in ext && 'install' in ext;
+}
+
+export function isHostApiProviderExtension(ext: Extension): ext is HostApiProviderExtension {
+  return 'getHostApiContributions' in ext
+    && typeof (ext as HostApiProviderExtension).getHostApiContributions === 'function';
 }
 
 export function isAuthProviderExtension(ext: Extension): ext is AuthProviderExtension {

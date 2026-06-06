@@ -25,6 +25,26 @@ vi.mock('@/stores/agents', () => ({
 
 vi.mock('@/lib/host-api', () => ({
   hostApiFetch: (...args: unknown[]) => hostApiFetchMock(...args),
+  hostApi: {
+    gateway: {
+      rpc: (...args: unknown[]) => gatewayRpcMock(...args),
+    },
+    media: {
+      thumbnails: vi.fn(async () => ({})),
+    },
+    sessions: {
+      history: vi.fn(async () => ({ messages: [] })),
+      summaries: vi.fn(async () => ({ success: true, summaries: [] })),
+      delete: vi.fn(async () => ({ success: true })),
+      rename: vi.fn(async () => ({ success: true })),
+    },
+    chat: {
+      sendWithMedia: async (input: unknown) => hostApiFetchMock('/api/chat/send-with-media', {
+        method: 'POST',
+        body: JSON.stringify(input),
+      }),
+    },
+  },
 }));
 
 describe('chat target routing', () => {
@@ -129,13 +149,13 @@ describe('chat target routing', () => {
     expect(state.sessions.some((session) => session.key === 'agent:research:desk')).toBe(true);
     expect(state.messages.at(-1)?.content).toBe('Hello direct agent');
 
-    const historyCall = hostApiFetchMock.mock.calls.find(([url]) => url === '/api/chat/history');
-    expect(JSON.parse((historyCall?.[1] as { body: string } | undefined)?.body ?? '{}')).toEqual(
+    const historyCall = gatewayRpcMock.mock.calls.find(([method]) => method === 'chat.history');
+    expect(historyCall?.[1]).toEqual(
       chatHistoryRpcParams('agent:research:desk', 200),
     );
 
-    const sendCall = hostApiFetchMock.mock.calls.find(([url]) => url === '/api/chat/send');
-    const sendPayload = JSON.parse((sendCall?.[1] as { body: string } | undefined)?.body ?? '{}');
+    const sendCall = gatewayRpcMock.mock.calls.find(([method]) => method === 'chat.send');
+    const sendPayload = (sendCall?.[1] ?? {}) as Record<string, unknown>;
     expect(sendPayload).toMatchObject({
       sessionKey: 'agent:research:desk',
       message: 'Hello direct agent',

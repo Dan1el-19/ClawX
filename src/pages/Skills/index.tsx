@@ -23,8 +23,8 @@ import { useSkillsStore } from '@/stores/skills';
 import { useGatewayStore } from '@/stores/gateway';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { cn } from '@/lib/utils';
-import { invokeIpc } from '@/lib/api-client';
-import { hostApiFetch } from '@/lib/host-api';
+import { hostApi } from '@/lib/host-api';
+import { isGatewayStopped } from '@/lib/gateway-status';
 import { toast } from 'sonner';
 import type { Skill } from '@/types/skill';
 import type { GatewayStatus } from '@/types/gateway';
@@ -53,23 +53,10 @@ const INSTALL_ERROR_CODES = new Set(['installTimeoutError', 'installRateLimitErr
 const FETCH_ERROR_CODES = new Set(['fetchTimeoutError', 'fetchRateLimitError', 'timeoutError', 'rateLimitError']);
 const SEARCH_ERROR_CODES = new Set(['searchTimeoutError', 'searchRateLimitError', 'timeoutError', 'rateLimitError']);
 
-type SkillsGatewayBannerState = 'none' | 'starting' | 'stopped';
+type SkillsGatewayBannerState = 'none' | 'stopped';
 
-function isSkillsGatewayReady(status: GatewayStatus, skillsFeatureReady: boolean): boolean {
-  return status.state === 'running' && (status.gatewayReady !== false || skillsFeatureReady);
-}
-
-function getSkillsGatewayBannerState(
-  status: GatewayStatus,
-  skillsFeatureReady: boolean,
-): SkillsGatewayBannerState {
-  if (status.state === 'starting' || status.state === 'reconnecting') {
-    return 'starting';
-  }
-  if (status.state === 'running' && !isSkillsGatewayReady(status, skillsFeatureReady)) {
-    return 'starting';
-  }
-  if (status.state === 'stopped' || status.state === 'error') {
+function getSkillsGatewayBannerState(status: GatewayStatus): SkillsGatewayBannerState {
+  if (isGatewayStopped(status)) {
     return 'stopped';
   }
   return 'none';
@@ -279,8 +266,7 @@ export function Skills() {
   const gatewayRunning = gatewayStatus.state === 'running';
   const gatewayReportedReady = gatewayStatus.gatewayReady !== false;
   const gatewayRuntimeKey = `${gatewayStatus.pid ?? 'none'}:${gatewayStatus.connectedAt ?? 'none'}:${gatewayStatus.port}`;
-  const [skillsFeatureReady, setSkillsFeatureReady] = useState(false);
-  const gatewayBannerState = getSkillsGatewayBannerState(gatewayStatus, skillsFeatureReady);
+  const gatewayBannerState = getSkillsGatewayBannerState(gatewayStatus);
   const [showGatewayBanner, setShowGatewayBanner] = useState(false);
 
   useEffect(() => {
@@ -304,14 +290,12 @@ export function Skills() {
     const attemptFetch = async () => {
       const ok = await fetchSkills();
       if (cancelled || !ok) return;
-      setSkillsFeatureReady(true);
       if (retryTimer) {
         clearInterval(retryTimer);
         retryTimer = null;
       }
     };
 
-    setSkillsFeatureReady(false);
     void attemptFetch();
 
     if (gatewayRunning && !gatewayReportedReady) {
@@ -330,7 +314,7 @@ export function Skills() {
 
   useEffect(() => {
     let cancelled = false;
-    void hostApiFetch<{ success: boolean; capability?: { canSearch?: boolean; canInstall?: boolean } }>('/api/skills/marketplace/capability')
+    void hostApi.skills.clawhubCapability()
       .then((result) => {
         if (cancelled) return;
         setMarketplaceAvailable(Boolean(result.success && (result.capability?.canInstall || result.capability?.canSearch)));
@@ -388,11 +372,11 @@ export function Skills() {
 
   const handleOpenSkillsFolder = useCallback(async () => {
     try {
-      const skillsDir = await invokeIpc<string>('openclaw:getSkillsDir');
+      const skillsDir = await hostApi.openclaw.getSkillsDir();
       if (!skillsDir) {
         throw new Error('Skills directory not available');
       }
-      const result = await invokeIpc<string>('shell:openPath', skillsDir);
+      const result = await hostApi.shell.openPath(skillsDir);
       if (result) {
         if (result.toLowerCase().includes('no such file') || result.toLowerCase().includes('not found') || result.toLowerCase().includes('failed to open')) {
           toast.error(t('toast.failedFolderNotFound'));
@@ -407,13 +391,10 @@ export function Skills() {
 
   const handleOpenSkillFolder = useCallback(async (skill: Skill) => {
     try {
-      const result = await hostApiFetch<{ success: boolean; error?: string }>('/api/clawhub/open-path', {
-        method: 'POST',
-        body: JSON.stringify({
-          skillKey: skill.id,
-          slug: skill.slug,
-          baseDir: skill.baseDir,
-        }),
+      const result = await hostApi.skills.clawhubOpenSkillPath({
+        skillKey: skill.id,
+        slug: skill.slug,
+        baseDir: skill.baseDir,
       });
       if (!result.success) {
         throw new Error(result.error || 'Failed to open folder');
@@ -426,8 +407,8 @@ export function Skills() {
   const [skillsDirPath, setSkillsDirPath] = useState('~/.openclaw/skills');
 
   useEffect(() => {
-    invokeIpc<string>('openclaw:getSkillsDir')
-      .then((dir) => setSkillsDirPath(dir as string))
+    hostApi.openclaw.getSkillsDir()
+      .then((dir) => setSkillsDirPath(dir))
       .catch(console.error);
   }, []);
 
@@ -511,26 +492,11 @@ export function Skills() {
           <div
             data-testid="skills-gateway-banner"
             data-state={gatewayBannerState}
-            className={cn(
-              "mb-6 p-4 rounded-xl border flex items-center gap-3",
-              gatewayBannerState === 'starting'
-                ? "border-blue-500/40 bg-blue-500/10"
-                : "border-yellow-500/50 bg-yellow-500/10",
-            )}
+            className="mb-6 p-4 rounded-xl border border-yellow-500/50 bg-yellow-500/10 flex items-center gap-3"
           >
-            <AlertCircle className={cn(
-              "h-5 w-5",
-              gatewayBannerState === 'starting'
-                ? "text-blue-600 dark:text-blue-400"
-                : "text-yellow-600 dark:text-yellow-400",
-            )} />
-            <span className={cn(
-              "text-sm font-medium",
-              gatewayBannerState === 'starting'
-                ? "text-blue-700 dark:text-blue-400"
-                : "text-yellow-700 dark:text-yellow-400",
-            )}>
-              {gatewayBannerState === 'starting' ? t('gatewayStarting') : t('gatewayWarning')}
+            <AlertCircle className="h-5 w-5 text-yellow-600 dark:text-yellow-400" />
+            <span className="text-sm font-medium text-yellow-700 dark:text-yellow-400">
+              {t('gatewayWarning')}
             </span>
           </div>
         )}
@@ -740,7 +706,7 @@ export function Skills() {
                     <div
                       key={skill.slug}
                       className="group flex flex-row items-center justify-between py-3.5 px-3 rounded-xl hover:bg-black/5 dark:hover:bg-white/5 transition-colors cursor-pointer border-b border-black/5 dark:border-white/5 last:border-0"
-                      onClick={() => invokeIpc('shell:openExternal', `https://clawhub.ai/s/${skill.slug}`)}
+                      onClick={() => hostApi.shell.openExternal(`https://clawhub.ai/s/${skill.slug}`)}
                     >
                       <div className="flex items-start gap-4 flex-1 overflow-hidden pr-4">
                         <div className="h-10 w-10 shrink-0 flex items-center justify-center text-xl bg-black/5 dark:bg-white/5 border border-black/5 dark:border-white/10 rounded-xl overflow-hidden">

@@ -56,6 +56,17 @@ import {
   type GatewayCapabilityName,
   type GatewayCapabilitySnapshot,
 } from './capability-monitor';
+import {
+  isGatewayWsTraceEnabled,
+  redactGatewayFrameForTrace,
+  summarizeGatewayFrameForTrace,
+} from './ws-trace';
+import type {
+  GatewayChannelStatusEvent,
+  GatewayChatMessageEvent,
+  GatewayRuntimePayload,
+} from '@shared/host-events/contract';
+import type { ChatRuntimeEvent } from '@shared/chat-runtime-events';
 
 export interface GatewayStatus {
   state: GatewayLifecycleState;
@@ -134,11 +145,11 @@ export interface GatewayManagerEvents {
   notification: (notification: JsonRpcNotification) => void;
   exit: (code: number | null) => void;
   error: (error: Error) => void;
-  'gateway:health': (data: unknown) => void;
-  'gateway:presence': (data: unknown) => void;
-  'channel:status': (data: { channelId: string; status: string }) => void;
-  'chat:message': (data: { message: unknown }) => void;
-  'chat:runtime-event': (data: unknown) => void;
+  'gateway:health': (data: GatewayRuntimePayload) => void;
+  'gateway:presence': (data: GatewayRuntimePayload) => void;
+  'channel:status': (data: GatewayChannelStatusEvent) => void;
+  'chat:message': (data: GatewayChatMessageEvent) => void;
+  'chat:runtime-event': (data: ChatRuntimeEvent) => void;
 }
 
 /**
@@ -346,7 +357,6 @@ export class GatewayManager extends EventEmitter {
     try {
       await runGatewayStartupSequence({
         port: this.status.port,
-        ownedPid: this.process?.pid,
         shouldWaitForPortFree: process.platform === 'win32',
         hasOwnedProcess: () => this.process?.pid != null && this.ownsProcess,
         resetStartupStderrLines: () => {
@@ -885,6 +895,12 @@ export class GatewayManager extends EventEmitter {
       };
 
       try {
+        if (isGatewayWsTraceEnabled()) {
+          logger.debug('[gateway-ws-trace] send', {
+            summary: summarizeGatewayFrameForTrace(request),
+            frame: redactGatewayFrameForTrace(request),
+          });
+        }
         this.ws.send(JSON.stringify(request));
       } catch (error) {
         rejectPendingGatewayRequest(this.pendingRequests, id, new Error(`Failed to send RPC request: ${error}`));
@@ -900,7 +916,11 @@ export class GatewayManager extends EventEmitter {
       }
       const capability = classifyCapabilityMethod(method);
       if (capability) {
-        this.capabilityMonitor.recordCapabilitySuccess(capability, result, Date.now() - startedAt);
+        this.capabilityMonitor.recordCapabilitySuccess(
+          capability,
+          result as GatewayRuntimePayload,
+          Date.now() - startedAt,
+        );
       }
       return result;
     }).catch((error) => {
@@ -965,10 +985,10 @@ export class GatewayManager extends EventEmitter {
       ]);
 
       if (healthResult.status === 'fulfilled') {
-        this.capabilityMonitor.recordOpenClawHealth(healthResult.value);
+        this.capabilityMonitor.recordOpenClawHealth(healthResult.value as GatewayRuntimePayload);
       }
       if (statusResult.status === 'fulfilled') {
-        this.capabilityMonitor.recordOpenClawStatus(statusResult.value);
+        this.capabilityMonitor.recordOpenClawStatus(statusResult.value as GatewayRuntimePayload);
       }
     }
 
@@ -1144,6 +1164,12 @@ export class GatewayManager extends EventEmitter {
   private handleMessage(message: unknown): void {
     this.connectionMonitor.markAlive('message');
     this.recordGatewayAlive();
+    if (isGatewayWsTraceEnabled()) {
+      logger.debug('[gateway-ws-trace] recv', {
+        summary: summarizeGatewayFrameForTrace(message),
+        frame: redactGatewayFrameForTrace(message),
+      });
+    }
 
     if (typeof message !== 'object' || message === null) {
       logger.debug('Received non-object Gateway message');

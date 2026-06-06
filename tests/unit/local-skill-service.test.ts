@@ -1,12 +1,23 @@
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+const { homedirMock } = vi.hoisted(() => ({
+  homedirMock: vi.fn(),
+}));
 const listAgentsSnapshotMock = vi.fn();
 const getOpenClawSkillsDirMock = vi.fn();
 const getOpenClawResolvedDirMock = vi.fn();
 const getAllSkillConfigsMock = vi.fn();
+
+vi.mock('node:os', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:os')>();
+  return {
+    ...actual,
+    homedir: () => homedirMock(),
+  };
+});
 
 vi.mock('@electron/utils/agent-config', () => ({
   listAgentsSnapshot: () => listAgentsSnapshotMock(),
@@ -26,6 +37,14 @@ describe('local skill service', () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
+    const homeDir = mkdtempSync(join(tmpdir(), 'clawx-local-skills-home-'));
+    homedirMock.mockReturnValue(homeDir);
+    vi.stubEnv('HOME', homeDir);
+    vi.stubEnv('USERPROFILE', homeDir);
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
   });
 
   it('includes bundled skill-creator but filters out other bundled openclaw skills', async () => {

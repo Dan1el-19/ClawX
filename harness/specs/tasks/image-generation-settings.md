@@ -17,8 +17,7 @@ touchedAreas:
   - scripts/bundle-openclaw.mjs
   - scripts/patch-openclaw-image-b64-json.mjs
   - package.json
-  - electron/api/routes/media.ts
-  - electron/api/server.ts
+  - electron/services/media-api.ts
   - electron/utils/store.ts
   - electron/services/providers/provider-runtime-sync.ts
   - src/lib/image-generation.ts
@@ -27,8 +26,8 @@ touchedAreas:
   - src/components/settings/ImageGenerationSettings.tsx
   - src/pages/ImageGeneration/index.tsx
   - src/pages/Models/index.tsx
-  - src/i18n/locales/*/common.json
-  - src/i18n/locales/*/dashboard.json
+  - shared/i18n/locales/*/common.json
+  - shared/i18n/locales/*/dashboard.json
   - tests/unit/openclaw-image-generation.test.ts
   - tests/unit/openclaw-auth.test.ts
   - tests/e2e/image-generation-settings.spec.ts
@@ -53,8 +52,8 @@ requiredTests:
   - tests/unit/openclaw-image-generation.test.ts
   - tests/e2e/image-generation-settings.spec.ts
 acceptance:
-  - Renderer uses hostApiFetch only (src/lib/image-generation.ts); no direct Gateway HTTP or ipcRenderer from pages.
-  - GET/PUT /api/media/image-generation and POST /api/media/image-generation/test are handled in Main process.
+  - Renderer uses typed hostApi media methods only (src/lib/image-generation.ts); no direct Gateway HTTP or ipcRenderer from pages.
+  - Image generation settings and test actions are handled in Main process services.
   - Unit tests cover model ref parsing, config read/write, custom endpoint model mapping, private-network endpoint opt-in, and the independent image endpoint not mutating `models.providers.openai`.
   - E2E verifies the Image Generation page is hidden until developer mode is enabled, is not embedded in Models, and exposes the custom endpoint controls.
 docs:

@@ -1,15 +1,16 @@
 /**
  * Chat State Store
  * Manages chat messages, sessions, and streaming state.
- * Chat RPC/control flows are Main-owned via Host API routes.
+ * Communicates with OpenClaw Gateway through the Main-owned host API.
  */
 import { create } from 'zustand';
-import { hostApiFetch } from '@/lib/host-api';
+import { hostApi, type ChatSendWithMediaResult, type SessionLabelSummary } from '@/lib/host-api';
 import { useGatewayStore } from './gateway';
 import { useAgentsStore } from './agents';
 import type { ChatRuntimeEvent } from '../../shared/chat-runtime-events';
 import { buildBaselineRunKey, captureBaseline, clearBaselines } from './baseline-cache';
-import { buildCronSessionHistoryPath, isCronSessionKey } from './chat/cron-session-utils';
+import { isCronSessionKey } from './chat/cron-session-utils';
+import { fetchCronSessionHistory } from '@/lib/cron-session-history';
 import { pickStartupSessionFallback } from './chat/session-selection';
 import {
   CHAT_HISTORY_DISK_FALLBACK_TIMEOUT_MS,
@@ -143,12 +144,6 @@ type PendingOptimisticUserMessage = {
 
 const _pendingOptimisticUserMessages = new Map<string, PendingOptimisticUserMessage[]>();
 
-type SessionLabelSummary = {
-  sessionKey: string;
-  firstUserText: string | null;
-  lastTimestamp: number | null;
-};
-
 function getSessionBackendLabel(session: ChatSession): string {
   return toSessionLabel(session.label || session.derivedTitle || '');
 }
@@ -173,13 +168,7 @@ function applySessionBackendLabels(set: ChatSet, sessions: ChatSession[]): void 
 
 async function fetchSessionLabelSummaries(sessionKeys: string[]): Promise<SessionLabelSummary[]> {
   if (sessionKeys.length === 0) return [];
-  const response = await hostApiFetch<{
-    success?: boolean;
-    summaries?: SessionLabelSummary[];
-  }>('/api/sessions/summaries', {
-    method: 'POST',
-    body: JSON.stringify({ sessionKeys }),
-  });
+  const response = await hostApi.sessions.summaries({ sessionKeys });
   return Array.isArray(response?.summaries) ? response.summaries : [];
 }
 
@@ -1512,13 +1501,9 @@ async function loadMissingPreviews(messages: RawMessage[]): Promise<boolean> {
     }
 
     try {
-      const thumbnails = await hostApiFetch<Record<string, { preview: string | null; fileSize: number }>>(
-        '/api/files/thumbnails',
-        {
-          method: 'POST',
-          body: JSON.stringify({ paths: needPreview }),
-        },
-      );
+      const thumbnails = await hostApi.media.thumbnails({
+        paths: needPreview,
+      });
       if (applyPreviewResults(messages, thumbnails)) {
         updatedAny = true;
       }
@@ -1617,10 +1602,7 @@ function reconcileCurrentSessionIdleFromBackend(
 async function loadCronFallbackMessages(sessionKey: string, limit = 200): Promise<RawMessage[]> {
   if (!isCronSessionKey(sessionKey)) return [];
   try {
-    const response = await hostApiFetch<{ messages?: RawMessage[] }>(
-      buildCronSessionHistoryPath(sessionKey, limit),
-    );
-    return Array.isArray(response.messages) ? response.messages : [];
+    return await fetchCronSessionHistory(sessionKey, limit);
   } catch (error) {
     console.warn('Failed to load cron fallback history:', error);
     return [];
@@ -1628,22 +1610,10 @@ async function loadCronFallbackMessages(sessionKey: string, limit = 200): Promis
 }
 
 async function fetchChatSessionsList(): Promise<Record<string, unknown>> {
-  try {
-    const response = await hostApiFetch<{
-      success: boolean;
-      result?: Record<string, unknown>;
-      error?: string;
-    }>('/api/chat/sessions');
-    if (response.success && response.result) {
-      return response.result;
-    }
-    throw new Error(response.error || 'Failed to load chat sessions');
-  } catch {
-    return await useGatewayStore.getState().rpc<Record<string, unknown>>('sessions.list', {
-      includeDerivedTitles: true,
-      includeLastMessage: true,
-    });
-  }
+  return useGatewayStore.getState().rpc<Record<string, unknown>>('sessions.list', {
+    includeDerivedTitles: true,
+    includeLastMessage: true,
+  });
 }
 
 async function fetchChatHistory(
@@ -1657,25 +1627,7 @@ async function fetchChatHistory(
     limit,
     ...(typeof maxChars === 'number' ? { maxChars } : {}),
   };
-  try {
-    const response = await hostApiFetch<{
-      success: boolean;
-      result?: Record<string, unknown>;
-      error?: string;
-    }>('/api/chat/history', {
-      method: 'POST',
-      body: JSON.stringify({
-        ...params,
-        ...(typeof timeoutMs === 'number' ? { timeoutMs } : {}),
-      }),
-    });
-    if (response.success && response.result) {
-      return response.result;
-    }
-    throw new Error(response.error || 'Failed to load chat history');
-  } catch {
-    return await useGatewayStore.getState().rpc<Record<string, unknown>>('chat.history', params, timeoutMs);
-  }
+  return useGatewayStore.getState().rpc<Record<string, unknown>>('chat.history', params, timeoutMs);
 }
 
 async function sendChatMessageViaHostApi(params: {
@@ -1684,39 +1636,11 @@ async function sendChatMessageViaHostApi(params: {
   deliver?: boolean;
   idempotencyKey: string;
 }): Promise<{ runId?: string }> {
-  try {
-    const response = await hostApiFetch<{
-      success: boolean;
-      result?: { runId?: string };
-      error?: string;
-    }>('/api/chat/send', {
-      method: 'POST',
-      body: JSON.stringify(params),
-    });
-    if (!response.success) {
-      throw new Error(response.error || 'Failed to send chat message');
-    }
-    return response.result ?? {};
-  } catch {
-    return await useGatewayStore.getState().rpc<{ runId?: string }>('chat.send', params, 120000);
-  }
+  return useGatewayStore.getState().rpc<{ runId?: string }>('chat.send', params, 120000);
 }
 
 async function abortChatRunViaHostApi(sessionKey: string): Promise<void> {
-  try {
-    const response = await hostApiFetch<{
-      success: boolean;
-      error?: string;
-    }>('/api/chat/abort', {
-      method: 'POST',
-      body: JSON.stringify({ sessionKey }),
-    });
-    if (!response.success) {
-      throw new Error(response.error || 'Failed to abort chat run');
-    }
-  } catch {
-    await useGatewayStore.getState().rpc('chat.abort', { sessionKey });
-  }
+  await useGatewayStore.getState().rpc('chat.abort', { sessionKey });
 }
 
 function normalizeAgentId(value: string | undefined | null): string {
@@ -2711,13 +2635,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     // <id>.deleted.jsonl and <id>.jsonl.reset.* siblings, then removes the
     // entry from sessions.json so sessions.list stops surfacing it.
     try {
-      const result = await hostApiFetch<{
-        success: boolean;
-        error?: string;
-      }>('/api/sessions/delete', {
-        method: 'POST',
-        body: JSON.stringify({ sessionKey: key }),
-      });
+      const result = await hostApi.sessions.delete(key);
       if (!result.success) {
         console.warn(`[deleteSession] IPC reported failure for ${key}:`, result.error);
       }
@@ -2791,13 +2709,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
 
     try {
-      const result = await hostApiFetch<{
-        success: boolean;
-        error?: string;
-      }>('/api/sessions/rename', {
-        method: 'POST',
-        body: JSON.stringify({ sessionKey: key, label: normalized }),
-      });
+      const result = await hostApi.sessions.rename(key, normalized);
       if (!result.success) {
         throw new Error(result.error || 'Failed to rename session');
       }
@@ -3700,26 +3612,20 @@ export const useChatStore = create<ChatState>((set, get) => ({
         saveImageCache(_imageCache);
       }
 
-      let result: { success: boolean; result?: { runId?: string }; error?: string };
+      let result: ChatSendWithMediaResult;
 
       if (hasMedia) {
-        result = await hostApiFetch<{ success: boolean; result?: { runId?: string }; error?: string }>(
-          '/api/chat/send-with-media',
-          {
-            method: 'POST',
-            body: JSON.stringify({
-              sessionKey: currentSessionKey,
-              message: trimmed || 'Process the attached file(s).',
-              deliver: false,
-              idempotencyKey,
-              media: attachments.map((a) => ({
-                filePath: a.stagedPath,
-                mimeType: a.mimeType,
-                fileName: a.fileName,
-              })),
-            }),
-          },
-        );
+        result = await hostApi.chat.sendWithMedia({
+          sessionKey: currentSessionKey,
+          message: trimmed || 'Process the attached file(s).',
+          deliver: false,
+          idempotencyKey,
+          media: attachments.map((a) => ({
+            filePath: a.stagedPath,
+            mimeType: a.mimeType,
+            fileName: a.fileName,
+          })),
+        });
       } else {
         const rpcResult = await sendChatMessageViaHostApi({
           sessionKey: currentSessionKey,

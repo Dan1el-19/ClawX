@@ -30,7 +30,13 @@ import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
-import { hostApiFetch } from '@/lib/host-api';
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
+import {
+  hostApi,
+  type ChannelTargetOption,
+  type DeliveryChannelAccount,
+  type DeliveryChannelGroup,
+} from '@/lib/host-api';
 import { useCronStore } from '@/stores/cron';
 import { useGatewayStore } from '@/stores/gateway';
 import { useAgentsStore } from '@/stores/agents';
@@ -42,6 +48,7 @@ import type { CronJob, CronJobCreateInput, ScheduleType } from '@/types/cron';
 import { CHANNEL_ICONS, CHANNEL_NAMES, type ChannelType } from '@/types/channel';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
+import { isGatewayStopped } from '@/lib/gateway-status';
 
 // Common cron schedule presets
 const schedulePresets: { key: string; value: string; type: ScheduleType }[] = [
@@ -176,24 +183,6 @@ function estimateNextRun(scheduleExpr: string): string | null {
   return null;
 }
 
-interface DeliveryChannelAccount {
-  accountId: string;
-  name: string;
-  isDefault: boolean;
-}
-
-interface DeliveryChannelGroup {
-  channelType: string;
-  defaultAccountId: string;
-  accounts: DeliveryChannelAccount[];
-}
-
-interface ChannelTargetOption {
-  value: string;
-  label: string;
-  kind: 'user' | 'group' | 'channel';
-}
-
 function isKnownChannelType(value: string): value is ChannelType {
   return value in CHANNEL_NAMES;
 }
@@ -237,13 +226,24 @@ function SelectField({ className, children, ...props }: SelectFieldProps) {
 
 // Create/Edit Task Dialog
 interface TaskDialogProps {
+  open: boolean;
   job?: CronJob;
   configuredChannels: DeliveryChannelGroup[];
   onClose: () => void;
   onSave: (input: CronJobCreateInput) => Promise<void>;
 }
 
-function TaskDialog({ job, configuredChannels, onClose, onSave }: TaskDialogProps) {
+function getInitialCronSchedule(job?: CronJob): string {
+  const schedule = job?.schedule;
+  if (!schedule) return '0 9 * * *';
+  if (typeof schedule === 'string') return schedule;
+  if (typeof schedule === 'object' && 'expr' in schedule && typeof (schedule as { expr: string }).expr === 'string') {
+    return (schedule as { expr: string }).expr;
+  }
+  return '0 9 * * *';
+}
+
+function TaskDialog({ open, job, configuredChannels, onClose, onSave }: TaskDialogProps) {
   const { t } = useTranslation('cron');
   const [saving, setSaving] = useState(false);
   const agents = useAgentsStore((s) => s.agents);
@@ -251,17 +251,7 @@ function TaskDialog({ job, configuredChannels, onClose, onSave }: TaskDialogProp
   const [name, setName] = useState(job?.name || '');
   const [message, setMessage] = useState(job?.message || '');
   const [selectedAgentId, setSelectedAgentId] = useState(job?.agentId || useChatStore.getState().currentAgentId);
-  // Extract cron expression string from CronSchedule object or use as-is if string
-  const initialSchedule = (() => {
-    const s = job?.schedule;
-    if (!s) return '0 9 * * *';
-    if (typeof s === 'string') return s;
-    if (typeof s === 'object' && 'expr' in s && typeof (s as { expr: string }).expr === 'string') {
-      return (s as { expr: string }).expr;
-    }
-    return '0 9 * * *';
-  })();
-  const [schedule, setSchedule] = useState(initialSchedule);
+  const [schedule, setSchedule] = useState(getInitialCronSchedule(job));
   const [customSchedule, setCustomSchedule] = useState('');
   const [useCustom, setUseCustom] = useState(false);
   const [enabled, setEnabled] = useState(job?.enabled ?? true);
@@ -271,6 +261,27 @@ function TaskDialog({ job, configuredChannels, onClose, onSave }: TaskDialogProp
   const [selectedDeliveryAccountId, setSelectedDeliveryAccountId] = useState(job?.delivery?.accountId || '');
   const [channelTargetOptions, setChannelTargetOptions] = useState<ChannelTargetOption[]>([]);
   const [loadingChannelTargets, setLoadingChannelTargets] = useState(false);
+  const [prevOpen, setPrevOpen] = useState(open);
+
+  if (prevOpen !== open) {
+    setPrevOpen(open);
+    if (open) {
+      setSaving(false);
+      setName(job?.name || '');
+      setMessage(job?.message || '');
+      setSelectedAgentId(job?.agentId || useChatStore.getState().currentAgentId);
+      setSchedule(getInitialCronSchedule(job));
+      setCustomSchedule('');
+      setUseCustom(false);
+      setEnabled(job?.enabled ?? true);
+      setDeliveryMode(job?.delivery?.mode === 'announce' ? 'announce' : 'none');
+      setDeliveryChannel(job?.delivery?.channel || '');
+      setDeliveryTarget(job?.delivery?.to || '');
+      setSelectedDeliveryAccountId(job?.delivery?.accountId || '');
+      setChannelTargetOptions([]);
+      setLoadingChannelTargets(false);
+    }
+  }
   const schedulePreview = estimateNextRun(useCustom ? customSchedule : schedule);
   const selectableChannels = configuredChannels.filter((group) => isSupportedCronDeliveryChannel(group.channelType));
   const availableChannels = selectableChannels.some((group) => group.channelType === deliveryChannel)
@@ -332,13 +343,10 @@ function TaskDialog({ job, configuredChannels, onClose, onSave }: TaskDialogProp
 
     let cancelled = false;
     setLoadingChannelTargets(true);
-    const params = new URLSearchParams({ channelType: effectiveDeliveryChannel });
-    if (selectedResolvedAccountId) {
-      params.set('accountId', selectedResolvedAccountId);
-    }
-    void hostApiFetch<{ success: boolean; targets?: ChannelTargetOption[]; error?: string }>(
-      `/api/channels/targets?${params.toString()}`,
-    ).then((result) => {
+    void hostApi.channels.targets({
+      channelType: effectiveDeliveryChannel,
+      accountId: selectedResolvedAccountId,
+    }).then((result) => {
       if (cancelled) return;
       if (!result.success) {
         throw new Error(result.error || 'Failed to load channel targets');
@@ -422,12 +430,17 @@ function TaskDialog({ job, configuredChannels, onClose, onSave }: TaskDialogProp
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/30 dark:bg-black/60 flex items-center justify-center p-4" onClick={onClose}>
-      <Card className="w-full max-w-lg max-h-[90vh] flex flex-col rounded-3xl border-0 shadow-2xl bg-surface-modal overflow-hidden" onClick={(e) => e.stopPropagation()}>
+    <Dialog open={open} onOpenChange={(nextOpen) => !nextOpen && onClose()}>
+      <DialogContent asChild className="w-[calc(100%-2rem)] max-w-lg max-h-[90vh] flex flex-col rounded-3xl border-0 shadow-2xl bg-surface-modal overflow-hidden">
+        <Card data-testid="cron-task-dialog">
         <CardHeader className="flex flex-row items-start justify-between pb-2 shrink-0">
           <div>
-            <CardTitle className="text-2xl font-serif font-normal">{job ? t('dialog.editTitle') : t('dialog.createTitle')}</CardTitle>
-            <CardDescription className="text-sm mt-1 text-foreground/70">{t('dialog.description')}</CardDescription>
+            <DialogTitle asChild>
+              <CardTitle className="text-2xl font-serif font-normal">{job ? t('dialog.editTitle') : t('dialog.createTitle')}</CardTitle>
+            </DialogTitle>
+            <DialogDescription asChild>
+              <CardDescription className="text-sm mt-1 text-foreground/70">{t('dialog.description')}</CardDescription>
+            </DialogDescription>
           </div>
           <Button variant="ghost" size="icon" onClick={onClose} className="rounded-full h-8 w-8 -mr-2 -mt-2 text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/5">
             <X className="h-4 w-4" />
@@ -693,7 +706,8 @@ function TaskDialog({ job, configuredChannels, onClose, onSave }: TaskDialogProp
           </div>
         </CardContent>
       </Card>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -871,12 +885,11 @@ export function Cron() {
   const [configuredChannels, setConfiguredChannels] = useState<DeliveryChannelGroup[]>([]);
 
   const isGatewayRunning = gatewayStatus.state === 'running';
+  const showGatewayUnavailableWarning = isGatewayStopped(gatewayStatus);
 
   const fetchConfiguredChannels = useCallback(async () => {
     try {
-      const response = await hostApiFetch<{ success: boolean; channels?: DeliveryChannelGroup[]; error?: string }>(
-        '/api/channels/accounts',
-      );
+      const response = await hostApi.channels.accounts();
       if (!response.success) {
         throw new Error(response.error || 'Failed to load delivery channels');
       }
@@ -925,14 +938,14 @@ export function Cron() {
 
   if (loading) {
     return (
-      <div className="flex flex-col -m-6 dark:bg-background min-h-[calc(100vh-2.5rem)] items-center justify-center">
+      <div data-testid="cron-page" className="flex flex-col -m-6 dark:bg-background min-h-[calc(100vh-2.5rem)] items-center justify-center">
         <LoadingSpinner size="lg" />
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col -m-6 dark:bg-background h-[calc(100vh-2.5rem)] overflow-hidden">
+    <div data-testid="cron-page" className="flex flex-col -m-6 dark:bg-background h-[calc(100vh-2.5rem)] overflow-hidden">
       <div className="w-full max-w-5xl mx-auto flex flex-col h-full p-10 pt-16">
         {/* Header */}
         <div className="flex flex-col md:flex-row md:items-start justify-between mb-12 shrink-0 gap-4">
@@ -958,6 +971,7 @@ export function Cron() {
               {t('refresh')}
             </Button>
             <Button
+              data-testid="cron-new-task-button"
               onClick={() => {
                 setEditingJob(undefined);
                 setShowDialog(true);
@@ -974,7 +988,7 @@ export function Cron() {
         {/* Content Area */}
         <div className="flex-1 overflow-y-auto pr-2 pb-10 min-h-0 -mr-2">
           {/* Gateway Warning */}
-          {!isGatewayRunning && (
+          {showGatewayUnavailableWarning && (
             <div className="mb-8 p-4 rounded-xl border border-yellow-500/50 bg-yellow-500/10 flex items-center gap-3">
               <AlertCircle className="h-5 w-5 text-yellow-600 dark:text-yellow-400" />
               <span className="text-yellow-700 dark:text-yellow-400 text-sm font-medium">
@@ -1092,17 +1106,15 @@ export function Cron() {
       </div>
 
       {/* Create/Edit Dialog */}
-      {showDialog && (
-        <TaskDialog
-          job={editingJob}
-          configuredChannels={configuredChannels}
-          onClose={() => {
-            setShowDialog(false);
-            setEditingJob(undefined);
-          }}
-          onSave={handleSave}
-        />
-      )}
+      <TaskDialog
+        open={showDialog}
+        job={editingJob}
+        configuredChannels={configuredChannels}
+        onClose={() => {
+          setShowDialog(false);
+        }}
+        onSave={handleSave}
+      />
 
       <ConfirmDialog
         open={!!jobToDelete}

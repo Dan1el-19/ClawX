@@ -10,36 +10,30 @@ test.describe('Skills page gateway readiness', () => {
         '["skills.status",null]': { success: false, error: 'Gateway not connected' },
       },
       hostApi: {
-        '["/api/skills/marketplace/capability","GET"]': {
-          ok: true,
-          data: { status: 200, ok: true, json: { success: true, capability: { canSearch: false, canInstall: false } } },
+        '["skills","status",null]': { skills: [] },
+        '["skills","clawhubCapability",null]': {
+          success: true,
+          capability: { canSearch: false, canInstall: false },
         },
-        '["/api/skills/local","GET"]': {
-          ok: true,
-          data: {
-            status: 200,
-            ok: true,
-            json: {
-              success: true,
-              skills: [{
-                id: 'pdf',
-                slug: 'pdf',
-                name: 'PDF',
-                description: 'Local PDF tools',
-                enabled: true,
-                source: 'openclaw-managed',
-                baseDir: '/tmp/.openclaw/skills/pdf',
-              }, {
-                id: 'xlsx',
-                slug: 'xlsx',
-                name: 'XLSX',
-                description: 'Local spreadsheet tools',
-                enabled: false,
-                source: 'openclaw-managed',
-                baseDir: '/tmp/.openclaw/skills/xlsx',
-              }],
-            },
-          },
+        '["skills","local",null]': {
+          success: true,
+          skills: [{
+            id: 'pdf',
+            slug: 'pdf',
+            name: 'PDF',
+            description: 'Local PDF tools',
+            enabled: true,
+            source: 'openclaw-managed',
+            baseDir: '/tmp/.openclaw/skills/pdf',
+          }, {
+            id: 'xlsx',
+            slug: 'xlsx',
+            name: 'XLSX',
+            description: 'Local spreadsheet tools',
+            enabled: false,
+            source: 'openclaw-managed',
+            baseDir: '/tmp/.openclaw/skills/xlsx',
+          }],
         },
       },
     });
@@ -69,28 +63,22 @@ test.describe('Skills page gateway readiness', () => {
         '["skills.status",null]': { success: false, error: 'Gateway not connected' },
       },
       hostApi: {
-        '["/api/skills/marketplace/capability","GET"]': {
-          ok: true,
-          data: { status: 200, ok: true, json: { success: true, capability: { canSearch: false, canInstall: false } } },
+        '["skills","status",null]': { skills: [] },
+        '["skills","clawhubCapability",null]': {
+          success: true,
+          capability: { canSearch: false, canInstall: false },
         },
-        '["/api/skills/local","GET"]': {
-          ok: true,
-          data: {
-            status: 200,
-            ok: true,
-            json: {
-              success: true,
-              skills: [{
-                id: 'browser-automation',
-                slug: 'browser-automation',
-                name: 'Browser Automation',
-                description: 'Plugin skill',
-                enabled: true,
-                source: 'openclaw-plugin',
-                baseDir: '/tmp/.openclaw/plugin-skills/browser-automation',
-              }],
-            },
-          },
+        '["skills","local",null]': {
+          success: true,
+          skills: [{
+            id: 'browser-automation',
+            slug: 'browser-automation',
+            name: 'Browser Automation',
+            description: 'Plugin skill',
+            enabled: true,
+            source: 'openclaw-plugin',
+            baseDir: '/tmp/.openclaw/plugin-skills/browser-automation',
+          }],
         },
       },
     });
@@ -110,13 +98,14 @@ test.describe('Skills page gateway readiness', () => {
         '["skills.status",null]': { success: false, error: 'Gateway not connected' },
       },
       hostApi: {
-        '["/api/skills/marketplace/capability","GET"]': {
-          ok: true,
-          data: { status: 200, ok: true, json: { success: true, capability: { canSearch: false, canInstall: false } } },
+        '["skills","status",null]': { skills: [] },
+        '["skills","clawhubCapability",null]': {
+          success: true,
+          capability: { canSearch: false, canInstall: false },
         },
-        '["/api/skills/local","GET"]': {
-          ok: true,
-          data: { status: 200, ok: true, json: { success: true, skills: [] } },
+        '["skills","local",null]': {
+          success: true,
+          skills: [],
         },
       },
     });
@@ -136,6 +125,34 @@ test.describe('Skills page gateway readiness', () => {
       });
     });
 
+    await expect(page.getByTestId('sidebar-gateway-restarting')).toHaveAttribute('data-state', 'visible');
     await expect(page.getByTestId('skills-gateway-banner')).toHaveCount(0, { timeout: 3_500 });
+
+    await installIpcMocks(electronApp, {
+      gatewayRpc: {
+        '["skills.status",null]': { success: true, result: { skills: [] } },
+      },
+      hostApi: {
+        '["skills","status",null]': { skills: [] },
+        '["skills","local",null]': { success: true, skills: [] },
+        '["skills","clawhubCapability",null]': {
+          success: true,
+          capability: { canSearch: false, canInstall: false },
+        },
+      },
+    });
+
+    await electronApp.evaluate(({ BrowserWindow }) => {
+      const win = BrowserWindow.getAllWindows()[0];
+      win?.webContents.send('gateway:status-changed', {
+        state: 'running',
+        port: 18789,
+        pid: 12345,
+        connectedAt: 2,
+        gatewayReady: false,
+      });
+    });
+
+    await expect(page.getByTestId('skills-gateway-banner')).toHaveCount(0, { timeout: 2_000 });
   });
 });

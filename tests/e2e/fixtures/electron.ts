@@ -1,6 +1,6 @@
 import electronBinaryPath from 'electron';
 import { _electron as electron, expect, test as base, type ElectronApplication, type Page } from '@playwright/test';
-import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -114,11 +114,25 @@ async function closeElectronApp(app: ElectronApplication, timeoutMs = 5_000): Pr
   }
 }
 
+async function seedE2eSettings(userDataDir: string): Promise<void> {
+  const settingsPath = join(userDataDir, 'settings.json');
+  try {
+    await access(settingsPath);
+    return;
+  } catch {
+    // Seed only once per isolated profile. Tests that switch language should
+    // keep their persisted setting across relaunches in the same profile.
+  }
+
+  await writeFile(settingsPath, JSON.stringify({ language: 'en' }, null, 2), 'utf-8');
+}
+
 async function launchClawXElectron(
   homeDir: string,
   userDataDir: string,
   options: LaunchElectronOptions = {},
 ): Promise<ElectronApplication> {
+  await seedE2eSettings(userDataDir);
   const hostApiPort = await allocatePort();
   const electronEnv = process.platform === 'linux'
     ? {
@@ -128,7 +142,7 @@ async function launchClawXElectron(
     : {};
   return await electron.launch({
     executablePath: electronBinaryPath,
-    args: [electronEntry],
+    args: ['--lang=en-US', electronEntry],
     env: {
       ...process.env,
       ...electronEnv,
@@ -137,6 +151,9 @@ async function launchClawXElectron(
       APPDATA: join(homeDir, 'AppData', 'Roaming'),
       LOCALAPPDATA: join(homeDir, 'AppData', 'Local'),
       XDG_CONFIG_HOME: join(homeDir, '.config'),
+      LANG: 'en_US.UTF-8',
+      LC_ALL: 'en_US.UTF-8',
+      LANGUAGE: 'en',
       CLAWX_E2E: '1',
       CLAWX_USER_DATA_DIR: userDataDir,
       ...(options.skipSetup ? { CLAWX_E2E_SKIP_SETUP: '1' } : {}),
@@ -220,32 +237,178 @@ export async function installIpcMocks(
         return `{${entries.join(',')}}`;
       };
 
-      if (mockConfig.gatewayRpc) {
-        ipcMain.removeHandler('gateway:rpc');
-        ipcMain.handle('gateway:rpc', async (_event: unknown, method: string, payload: unknown) => {
-          const key = stableStringify([method, payload ?? null]);
-          if (key in mockConfig.gatewayRpc!) {
-            return mockConfig.gatewayRpc![key];
-          }
-          const fallbackKey = stableStringify([method, null]);
-          if (fallbackKey in mockConfig.gatewayRpc!) {
-            return mockConfig.gatewayRpc![fallbackKey];
-          }
-          return { success: true, result: {} };
-        });
-      }
+      const originalHostInvoke = (ipcMain as unknown as {
+        _invokeHandlers?: Map<string, (event: unknown, request: unknown) => Promise<unknown>>;
+      })._invokeHandlers?.get('host:invoke');
+      type IpcInvokeHandler = (event: unknown, ...args: unknown[]) => Promise<unknown>;
+      const getInvokeHandler = (channel: string): IpcInvokeHandler | undefined => {
+        return (ipcMain as unknown as {
+          _invokeHandlers?: Map<string, IpcInvokeHandler>;
+        })._invokeHandlers?.get(channel);
+      };
 
-      if (mockConfig.hostApi) {
-        ipcMain.removeHandler('hostapi:fetch');
-        ipcMain.handle('hostapi:fetch', async (_event: unknown, request: { path?: string; method?: string }) => {
-          const key = stableStringify([request?.path ?? '', request?.method ?? 'GET']);
-          if (key in mockConfig.hostApi!) {
-            return mockConfig.hostApi![key];
+      const respond = (id: unknown, data: unknown) => ({
+        id: typeof id === 'string' ? id : undefined,
+        ok: true,
+        data,
+      });
+      const fail = (id: unknown, message: string) => ({
+        id: typeof id === 'string' ? id : undefined,
+        ok: false,
+        error: { code: 'INTERNAL', message },
+      });
+
+      const unwrapLegacyResponse = (response: unknown): unknown => {
+        if (!response || typeof response !== 'object') return response;
+        const record = response as Record<string, unknown>;
+        const data = record.data;
+        if (data && typeof data === 'object' && 'json' in (data as Record<string, unknown>)) {
+          return (data as Record<string, unknown>).json;
+        }
+        return data ?? response;
+      };
+      const respondGatewayRpc = (id: unknown, response: unknown) => {
+        if (response && typeof response === 'object') {
+          const record = response as Record<string, unknown>;
+          if (record.success === false) {
+            return fail(id, String(record.error || 'Gateway RPC failed'));
           }
-          return {
-            ok: true,
-            data: { status: 200, ok: true, json: {} },
-          };
+          if (record.success === true && 'result' in record) {
+            return respond(id, record.result);
+          }
+        }
+        return respond(id, response);
+      };
+      const originalLegacyGatewayRpc = getInvokeHandler('gateway:rpc');
+      const originalLegacyFileStat = getInvokeHandler('file:stat');
+      const originalLegacyFileReadText = getInvokeHandler('file:readText');
+      const getLegacyOverride = (channel: string, original?: IpcInvokeHandler) => {
+        const current = getInvokeHandler(channel);
+        return current && current !== original ? current : null;
+      };
+
+      const legacyPathForHostRequest = (request: {
+        module?: string;
+        action?: string;
+        payload?: Record<string, unknown>;
+      }): [string, string] | null => {
+        const payload = request.payload ?? {};
+        if (request.module === 'gateway') {
+          if (request.action === 'status') return ['/api/gateway/status', 'GET'];
+          if (request.action === 'start') return ['/api/gateway/start', 'POST'];
+          if (request.action === 'restart') return ['/api/gateway/restart', 'POST'];
+        }
+        if (request.module === 'agents' && request.action === 'list') return ['/api/agents', 'GET'];
+        if (request.module === 'settings' && request.action === 'getAll') return ['/api/settings', 'GET'];
+        if (request.module === 'channels') {
+          if (request.action === 'accounts') return ['/api/channels/accounts', 'GET'];
+          if (request.action === 'validateCredentials') return ['/api/channels/credentials/validate', 'POST'];
+          if (request.action === 'saveConfig') return ['/api/channels/config', 'POST'];
+          if (request.action === 'bindingSave') return ['/api/channels/binding', 'PUT'];
+          if (request.action === 'bindingDelete') return ['/api/channels/binding', 'DELETE'];
+          if (request.action === 'formValues') {
+            const channelType = encodeURIComponent(String(payload.channelType ?? ''));
+            return [`/api/channels/config/${channelType}`, 'GET'];
+          }
+        }
+        if (request.module === 'diagnostics' && request.action === 'gatewaySnapshot') {
+          return ['/api/diagnostics/gateway-snapshot', 'GET'];
+        }
+        if (request.module === 'cron' && request.action === 'list') return ['/api/cron/jobs', 'GET'];
+        if (request.module === 'skills' && request.action === 'quickAccess') return ['/api/skills/quick-access', 'POST'];
+        if (request.module === 'files' && request.action === 'thumbnails') return ['/api/files/thumbnails', 'POST'];
+        if (request.module === 'media') {
+          if (request.action === 'thumbnails') return ['/api/files/thumbnails', 'POST'];
+          if (request.action === 'imageGenerationSettings') return ['/api/media/image-generation', 'GET'];
+          if (request.action === 'saveImageGenerationSettings') return ['/api/media/image-generation', 'PUT'];
+        }
+        if (request.module === 'sessions') {
+          if (request.action === 'history') {
+            const params = new URLSearchParams();
+            if (typeof payload.sessionKey === 'string') params.set('sessionKey', payload.sessionKey);
+            if (typeof payload.agentId === 'string') params.set('agentId', payload.agentId);
+            if (typeof payload.sessionId === 'string') params.set('sessionId', payload.sessionId);
+            if (typeof payload.limit === 'number') params.set('limit', String(payload.limit));
+            return [`/api/sessions/transcript?${params.toString()}`, 'GET'];
+          }
+          if (request.action === 'summaries') return ['/api/sessions/summaries', 'POST'];
+        }
+        return null;
+      };
+
+      if (mockConfig.gatewayRpc || mockConfig.hostApi || mockConfig.gatewayStatus) {
+        ipcMain.removeHandler('host:invoke');
+        ipcMain.handle('host:invoke', async (event: unknown, request: {
+          id?: string;
+          module?: string;
+          action?: string;
+          payload?: Record<string, unknown>;
+        }) => {
+          if (mockConfig.gatewayStatus && request?.module === 'gateway' && request.action === 'status') {
+            return respond(request.id, mockConfig.gatewayStatus);
+          }
+
+          if (mockConfig.gatewayRpc && request?.module === 'gateway' && request.action === 'rpc') {
+            const payload = request.payload ?? {};
+            const method = typeof payload.method === 'string' ? payload.method : '';
+            const params = 'params' in payload ? payload.params : null;
+            const key = stableStringify([method, params ?? null]);
+            if (key in mockConfig.gatewayRpc) return respondGatewayRpc(request.id, mockConfig.gatewayRpc[key]);
+            if (method === 'sessions.list') {
+              const emptySessionsListKey = stableStringify([method, {}]);
+              if (emptySessionsListKey in mockConfig.gatewayRpc) {
+                return respondGatewayRpc(request.id, mockConfig.gatewayRpc[emptySessionsListKey]);
+              }
+            }
+            const fallbackKey = stableStringify([method, null]);
+            if (fallbackKey in mockConfig.gatewayRpc) return respondGatewayRpc(request.id, mockConfig.gatewayRpc[fallbackKey]);
+            const legacyGatewayRpc = getLegacyOverride('gateway:rpc', originalLegacyGatewayRpc);
+            if (legacyGatewayRpc) {
+              return respondGatewayRpc(
+                request.id,
+                await legacyGatewayRpc(event, method, params, payload.timeoutMs),
+              );
+            }
+            return respond(request.id, {});
+          }
+
+          if (mockConfig.hostApi) {
+            const typedKey = stableStringify([
+              request?.module ?? null,
+              request?.action ?? null,
+              request?.payload ?? null,
+            ]);
+            if (typedKey in mockConfig.hostApi) {
+              return respond(request.id, unwrapLegacyResponse(mockConfig.hostApi[typedKey]));
+            }
+
+            const legacyPath = legacyPathForHostRequest(request ?? {});
+            if (legacyPath) {
+              const key = stableStringify(legacyPath);
+              if (key in mockConfig.hostApi) {
+                return respond(request.id, unwrapLegacyResponse(mockConfig.hostApi[key]));
+              }
+            }
+          }
+
+          if (request?.module === 'files') {
+            const payload = request.payload ?? {};
+            const path = typeof payload.path === 'string' ? payload.path : '';
+            if (request.action === 'stat') {
+              const legacyFileStat = getLegacyOverride('file:stat', originalLegacyFileStat);
+              if (legacyFileStat) {
+                return respond(request.id, await legacyFileStat(event, path));
+              }
+            }
+            if (request.action === 'readText') {
+              const legacyFileReadText = getLegacyOverride('file:readText', originalLegacyFileReadText);
+              if (legacyFileReadText) {
+                return respond(request.id, await legacyFileReadText(event, path));
+              }
+            }
+          }
+
+          return originalHostInvoke?.(event, request) ?? respond(request?.id, {});
         });
       }
 

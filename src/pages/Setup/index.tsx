@@ -26,8 +26,7 @@ import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import { SUPPORTED_LANGUAGES } from '@/i18n';
 import { toast } from 'sonner';
-import { invokeIpc } from '@/lib/api-client';
-import { hostApiFetch } from '@/lib/host-api';
+import { hostApi } from '@/lib/host-api';
 
 interface SetupStep {
   id: string;
@@ -352,12 +351,7 @@ function RuntimeContent({ onStatusChange }: RuntimeContentProps) {
 
     // Check OpenClaw package status
     try {
-      const openclawStatus = await invokeIpc('openclaw:status') as {
-        packageExists: boolean;
-        isBuilt: boolean;
-        dir: string;
-        version?: string;
-      };
+      const openclawStatus = await hostApi.openclaw.status();
 
       setOpenclawDir(openclawStatus.dir);
 
@@ -496,7 +490,7 @@ function RuntimeContent({ onStatusChange }: RuntimeContentProps) {
 
   const handleShowLogs = async () => {
     try {
-      const logs = await hostApiFetch<{ content: string }>('/api/logs?tailLines=100');
+      const logs = await hostApi.logs.recent(100);
       setLogContent(logs.content);
       setShowLogs(true);
     } catch {
@@ -507,9 +501,9 @@ function RuntimeContent({ onStatusChange }: RuntimeContentProps) {
 
   const handleOpenLogDir = async () => {
     try {
-      const { dir: logDir } = await hostApiFetch<{ dir: string | null }>('/api/logs/dir');
+      const { dir: logDir } = await hostApi.logs.dir();
       if (logDir) {
-        await invokeIpc('shell:showItemInFolder', logDir);
+        await hostApi.shell.showItemInFolder(logDir);
       }
     } catch {
       // ignore
@@ -684,10 +678,7 @@ function InstallingContent({ skills, onComplete, onSkip }: InstallingContentProp
         setOverallProgress(10);
 
         // Step 2: Call the backend to install uv and setup Python
-        const result = await invokeIpc('uv:install-all') as {
-          success: boolean;
-          error?: string
-        };
+        const result = await hostApi.uv.installAll();
 
         if (result.success) {
           setSkillStates(prev => prev.map(s => ({ ...s, status: 'completed' })));

@@ -3,37 +3,12 @@
  * Manages skill/plugin state
  */
 import { create } from 'zustand';
-import { hostApiFetch } from '@/lib/host-api';
+import { hostApi } from '@/lib/host-api';
+import type { SkillsStatusResult } from '@/lib/host-api';
 import { AppError, normalizeAppError } from '@/lib/error-model';
-import { useGatewayStore } from './gateway';
 import type { Skill, MarketplaceSkill } from '../types/skill';
 
-type GatewaySkillStatus = {
-  skillKey: string;
-  slug?: string;
-  name?: string;
-  description?: string;
-  disabled?: boolean;
-  emoji?: string;
-  version?: string;
-  author?: string;
-  config?: Record<string, unknown>;
-  bundled?: boolean;
-  always?: boolean;
-  source?: string;
-  baseDir?: string;
-  filePath?: string;
-};
-
-type GatewaySkillsStatusResult = {
-  skills?: GatewaySkillStatus[];
-};
-
-type LocalSkillsResult = {
-  success: boolean;
-  skills?: Skill[];
-  error?: string;
-};
+type GatewaySkillStatus = NonNullable<SkillsStatusResult['skills']>[number];
 
 const BUNDLED_OPENCLAW_SKILL_ALLOWLIST = new Set(['skill-creator']);
 const GATEWAY_ONLY_APPENDABLE_SOURCES = new Set(['openclaw-plugin', 'openclaw-extra']);
@@ -205,10 +180,12 @@ export const useSkillsStore = create<SkillsState>((set, get) => ({
       set({ loading: true, error: null });
     }
 
-    const gatewayDataPromise = useGatewayStore.getState().rpc<GatewaySkillsStatusResult>('skills.status');
+    const gatewayDataPromise = hostApi.skills.status()
+      .then((value) => ({ status: 'fulfilled' as const, value }))
+      .catch((reason: unknown) => ({ status: 'rejected' as const, reason }));
 
     try {
-      const localResult = await hostApiFetch<LocalSkillsResult>('/api/skills/local');
+      const localResult = await hostApi.skills.local();
       if (!localResult.success) {
         throw new Error(localResult.error || 'Failed to fetch local skills');
       }
@@ -216,42 +193,38 @@ export const useSkillsStore = create<SkillsState>((set, get) => ({
       const localSkills = Array.isArray(localResult.skills) ? localResult.skills : [];
       set({ skills: localSkills, loading: false, error: null });
 
-      void gatewayDataPromise
-        .then((gatewayData) => {
-          set((state) => ({
-            skills: mergeGatewaySkills(state.skills, gatewayData.skills),
-            loading: false,
-          }));
-        })
-        .catch(() => {
-          // Local data is already rendered; runtime merge is best-effort only.
-        });
+      void gatewayDataPromise.then((gatewayDataResult) => {
+        if (gatewayDataResult.status !== 'fulfilled') {
+          return;
+        }
+        set((state) => ({
+          skills: mergeGatewaySkills(state.skills, gatewayDataResult.value.skills),
+          loading: false,
+        }));
+      });
 
       return true;
     } catch (error) {
       console.error('Failed to fetch local skills:', error);
-      try {
-        const gatewayData = await gatewayDataPromise;
-        const gatewaySkills = mergeGatewaySkills([], gatewayData.skills);
+      const gatewayDataResult = await gatewayDataPromise;
+      if (gatewayDataResult.status === 'fulfilled') {
+        const gatewaySkills = mergeGatewaySkills([], gatewayDataResult.value.skills);
         set({ skills: gatewaySkills, loading: false, error: null });
         return true;
-      } catch (gatewayError) {
-        console.error('Failed to fetch gateway skills fallback:', gatewayError);
-        const appError = normalizeAppError(error, { module: 'skills', operation: 'fetch' });
-        const errorKey = mapErrorCodeToSkillErrorKey(appError.code, 'fetch');
-        set((prev) => ({ loading: false, error: errorKey ?? appError.message, skills: prev.skills }));
-        return false;
       }
+
+      console.error('Failed to fetch gateway skills fallback:', gatewayDataResult.reason);
+      const appError = normalizeAppError(error, { module: 'skills', operation: 'fetch' });
+      const errorKey = mapErrorCodeToSkillErrorKey(appError.code, 'fetch');
+      set((prev) => ({ loading: false, error: errorKey ?? appError.message, skills: prev.skills }));
+      return false;
     }
   },
 
   searchSkills: async (query: string) => {
     set({ searching: true, searchError: null });
     try {
-      const result = await hostApiFetch<{ success: boolean; results?: MarketplaceSkill[]; error?: string }>('/api/skills/marketplace/search', {
-        method: 'POST',
-        body: JSON.stringify({ query }),
-      });
+      const result = await hostApi.skills.clawhubSearch({ query });
       if (result.success) {
         set({ searchResults: result.results || [] });
       } else {
@@ -272,10 +245,7 @@ export const useSkillsStore = create<SkillsState>((set, get) => ({
   installSkill: async (slug: string, version?: string) => {
     set((state) => ({ installing: { ...state.installing, [slug]: true } }));
     try {
-      const result = await hostApiFetch<{ success: boolean; error?: string }>('/api/skills/marketplace/install', {
-        method: 'POST',
-        body: JSON.stringify({ slug, version }),
-      });
+      const result = await hostApi.skills.clawhubInstall({ slug, version });
       if (!result.success) {
         const appError = normalizeAppError(new Error(result.error || 'Install failed'), {
           module: 'skills',
@@ -301,10 +271,7 @@ export const useSkillsStore = create<SkillsState>((set, get) => ({
   uninstallSkill: async (slug: string) => {
     set((state) => ({ installing: { ...state.installing, [slug]: true } }));
     try {
-      const result = await hostApiFetch<{ success: boolean; error?: string }>('/api/skills/marketplace/uninstall', {
-        method: 'POST',
-        body: JSON.stringify({ slug }),
-      });
+      const result = await hostApi.skills.clawhubUninstall({ slug });
       if (!result.success) {
         throw new Error(result.error || 'Uninstall failed');
       }
@@ -332,12 +299,9 @@ export const useSkillsStore = create<SkillsState>((set, get) => ({
       }
     }
 
-    const result = await hostApiFetch<{ success: boolean; error?: string }>('/api/skills/configs', {
-      method: 'PATCH',
-      body: JSON.stringify({
-        updates: skillIds.map((skillKey) => ({ skillKey, enabled })),
-      }),
-    });
+    const result = await hostApi.skills.updateConfigs(
+      skillIds.map((skillKey) => ({ skillKey, enabled })),
+    );
     if (!result.success) {
       throw new Error(result.error || 'Failed to update skill config');
     }

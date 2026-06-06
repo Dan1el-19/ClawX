@@ -1,22 +1,22 @@
+import { createDiagnosticsApi } from '../../services/diagnostics-api';
 import type {
   Extension,
   ExtensionContext,
-  HostApiRouteExtension,
-  RouteHandler,
+  HostApiProviderExtension,
 } from '../types';
 
-class DiagnosticsExtension implements HostApiRouteExtension {
+class DiagnosticsExtension implements HostApiProviderExtension {
   readonly id = 'builtin/diagnostics';
 
   setup(_ctx: ExtensionContext): void {
-    // Diagnostics routes are stateless; no setup needed.
+    // Diagnostics are exposed through host IPC contributions.
   }
 
-  getRouteHandler(): RouteHandler {
-    return async (req, res, url, ctx) => {
-      const { handleDiagnosticsRoutes } = await import('../../api/routes/diagnostics');
-      return handleDiagnosticsRoutes(req, res, url, ctx);
-    };
+  getHostApiContributions(ctx: ExtensionContext) {
+    return [{
+      module: 'diagnostics',
+      actions: createDiagnosticsApi({ gatewayManager: ctx.gatewayManager }),
+    }];
   }
 }
 

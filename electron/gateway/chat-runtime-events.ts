@@ -12,10 +12,17 @@ function readNumber(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }
 
-function withBase(
-  type: ChatRuntimeEvent['type'],
+type ChatRuntimeEventType = ChatRuntimeEvent['type'];
+type ChatRuntimeEventFor<T extends ChatRuntimeEventType> = Extract<ChatRuntimeEvent, { type: T }>;
+type ChatRuntimeEventBaseFor<T extends ChatRuntimeEventType> = Pick<
+  ChatRuntimeEventFor<T>,
+  'type' | 'runId' | 'sessionKey' | 'seq' | 'ts'
+>;
+
+function withBase<T extends ChatRuntimeEventType>(
+  type: T,
   payload: Record<string, unknown>,
-): Pick<ChatRuntimeEvent, 'type' | 'runId' | 'sessionKey' | 'seq' | 'ts'> | null {
+): ChatRuntimeEventBaseFor<T> | null {
   const runId = readString(payload.runId);
   if (!runId) return null;
   return {
@@ -24,7 +31,7 @@ function withBase(
     sessionKey: readString(payload.sessionKey),
     seq: readNumber(payload.seq),
     ts: readNumber(payload.ts),
-  };
+  } as ChatRuntimeEventBaseFor<T>;
 }
 
 export function normalizeGatewayChatRuntimeEvent(payload: unknown): ChatRuntimeEvent | null {

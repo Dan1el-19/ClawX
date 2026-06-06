@@ -2,24 +2,24 @@ import { logger } from '../utils/logger';
 import type {
   Extension,
   ExtensionContext,
-  HostApiRouteExtension,
   MarketplaceProviderExtension,
-  RouteHandler,
 } from './types';
 import {
-  isHostApiRouteExtension,
+  isHostApiProviderExtension,
   isMarketplaceProviderExtension,
 } from './types';
 
 class ExtensionRegistry {
   private extensions = new Map<string, Extension>();
   private ctx: ExtensionContext | null = null;
+  private hostApiUnregisters = new Map<string, () => void>();
 
   async initialize(ctx: ExtensionContext): Promise<void> {
     this.ctx = ctx;
     for (const ext of this.extensions.values()) {
       try {
         await ext.setup(ctx);
+        this.registerHostApiContributions(ext, ctx);
         logger.info(`[extensions] Extension "${ext.id}" initialized`);
       } catch (err) {
         logger.error(`[extensions] Extension "${ext.id}" failed to initialize:`, err);
@@ -36,9 +36,15 @@ class ExtensionRegistry {
     logger.debug(`[extensions] Registered extension "${extension.id}"`);
 
     if (this.ctx) {
-      void Promise.resolve(extension.setup(this.ctx)).catch((err) => {
-        logger.error(`[extensions] Late-registered extension "${extension.id}" failed to initialize:`, err);
-      });
+      void Promise.resolve(extension.setup(this.ctx))
+        .then(() => {
+          if (this.ctx) {
+            this.registerHostApiContributions(extension, this.ctx);
+          }
+        })
+        .catch((err) => {
+          logger.error(`[extensions] Late-registered extension "${extension.id}" failed to initialize:`, err);
+        });
     }
   }
 
@@ -50,12 +56,6 @@ class ExtensionRegistry {
     return [...this.extensions.values()];
   }
 
-  getRouteHandlers(): RouteHandler[] {
-    return this.getAll()
-      .filter(isHostApiRouteExtension)
-      .map((ext: HostApiRouteExtension) => ext.getRouteHandler());
-  }
-
   getMarketplaceProvider(): MarketplaceProviderExtension | undefined {
     return this.getAll().find(isMarketplaceProviderExtension) as MarketplaceProviderExtension | undefined;
   }
@@ -63,6 +63,8 @@ class ExtensionRegistry {
   async teardownAll(): Promise<void> {
     for (const ext of this.extensions.values()) {
       try {
+        this.hostApiUnregisters.get(ext.id)?.();
+        this.hostApiUnregisters.delete(ext.id);
         await ext.teardown?.();
       } catch (err) {
         logger.warn(`[extensions] Extension "${ext.id}" teardown failed:`, err);
@@ -70,6 +72,21 @@ class ExtensionRegistry {
     }
     this.extensions.clear();
     this.ctx = null;
+  }
+
+  private registerHostApiContributions(ext: Extension, ctx: ExtensionContext): void {
+    this.hostApiUnregisters.get(ext.id)?.();
+    this.hostApiUnregisters.delete(ext.id);
+
+    if (!isHostApiProviderExtension(ext)) {
+      return;
+    }
+
+    const contributions = ext.getHostApiContributions(ctx);
+    if (contributions.length === 0) {
+      return;
+    }
+    this.hostApiUnregisters.set(ext.id, ctx.hostApi.register(ext.id, contributions));
   }
 }
 

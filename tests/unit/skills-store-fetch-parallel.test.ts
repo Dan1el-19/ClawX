@@ -1,17 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const hostApiFetchMock = vi.fn();
-const rpcMock = vi.fn();
+const statusMock = vi.fn();
+const localMock = vi.fn();
 
 vi.mock('@/lib/host-api', () => ({
-  hostApiFetch: (...args: unknown[]) => hostApiFetchMock(...args),
-}));
-
-vi.mock('@/stores/gateway', () => ({
-  useGatewayStore: {
-    getState: () => ({
-      rpc: (...args: unknown[]) => rpcMock(...args),
-    }),
+  hostApi: {
+    skills: {
+      status: () => statusMock(),
+      local: () => localMock(),
+      clawhubSearch: vi.fn(),
+      clawhubInstall: vi.fn(),
+      clawhubUninstall: vi.fn(),
+      updateConfigs: vi.fn(),
+    },
   },
 }));
 
@@ -34,11 +35,8 @@ describe('skills store local-first fetch', () => {
   it('starts local and gateway requests together, then returns after local skills load', async () => {
     const gatewayDeferred = deferred<{ skills: Array<Record<string, unknown>> }>();
     const localDeferred = deferred<{ success: boolean; skills: Array<Record<string, unknown>> }>();
-    rpcMock.mockReturnValueOnce(gatewayDeferred.promise);
-    hostApiFetchMock.mockImplementation((path: unknown) => {
-      if (path === '/api/skills/local') return localDeferred.promise;
-      return Promise.reject(new Error(`Unexpected path: ${String(path)}`));
-    });
+    statusMock.mockReturnValueOnce(gatewayDeferred.promise);
+    localMock.mockReturnValueOnce(localDeferred.promise);
 
     const { useSkillsStore } = await import('@/stores/skills');
     useSkillsStore.setState({ skills: [], loading: false, error: null });
@@ -46,8 +44,8 @@ describe('skills store local-first fetch', () => {
     const fetchPromise = useSkillsStore.getState().fetchSkills();
     await Promise.resolve();
 
-    expect(rpcMock).toHaveBeenCalledWith('skills.status');
-    expect(hostApiFetchMock).toHaveBeenCalledWith('/api/skills/local');
+    expect(statusMock).toHaveBeenCalledTimes(1);
+    expect(localMock).toHaveBeenCalledTimes(1);
 
     localDeferred.resolve({
       success: true,
@@ -61,21 +59,21 @@ describe('skills store local-first fetch', () => {
     gatewayDeferred.resolve({
       skills: [{ skillKey: 'pdf', description: 'runtime', disabled: false, version: '2.0.0' }],
     });
-    await Promise.resolve();
-    await Promise.resolve();
 
-    expect(useSkillsStore.getState().skills[0]).toMatchObject({
-      id: 'pdf',
-      description: 'runtime',
-      version: '2.0.0',
-      enabled: true,
+    await vi.waitFor(() => {
+      expect(useSkillsStore.getState().skills[0]).toMatchObject({
+        id: 'pdf',
+        description: 'runtime',
+        version: '2.0.0',
+        enabled: true,
+      });
     });
   });
 
   it('does not append bundled gateway skills that are missing from local scan', async () => {
     const gatewayDeferred = deferred<{ skills: Array<Record<string, unknown>> }>();
-    rpcMock.mockReturnValueOnce(gatewayDeferred.promise);
-    hostApiFetchMock.mockResolvedValueOnce({ success: true, skills: [] });
+    statusMock.mockReturnValueOnce(gatewayDeferred.promise);
+    localMock.mockResolvedValueOnce({ success: true, skills: [] });
 
     const { useSkillsStore } = await import('@/stores/skills');
     useSkillsStore.setState({ skills: [], loading: false, error: null });
@@ -89,16 +87,16 @@ describe('skills store local-first fetch', () => {
         { skillKey: 'skill-creator', slug: 'skill-creator', name: 'skill-creator', bundled: true, disabled: false },
       ],
     });
-    await Promise.resolve();
-    await Promise.resolve();
 
-    expect(useSkillsStore.getState().skills.map((skill) => skill.id)).toEqual([]);
+    await vi.waitFor(() => {
+      expect(useSkillsStore.getState().skills.map((skill) => skill.id)).toEqual([]);
+    });
   });
 
   it('does not resurrect gateway-managed skills that are missing from local scan', async () => {
     const gatewayDeferred = deferred<{ skills: Array<Record<string, unknown>> }>();
-    rpcMock.mockReturnValueOnce(gatewayDeferred.promise);
-    hostApiFetchMock.mockResolvedValueOnce({ success: true, skills: [] });
+    statusMock.mockReturnValueOnce(gatewayDeferred.promise);
+    localMock.mockResolvedValueOnce({ success: true, skills: [] });
 
     const { useSkillsStore } = await import('@/stores/skills');
     useSkillsStore.setState({ skills: [], loading: false, error: null });
@@ -112,9 +110,9 @@ describe('skills store local-first fetch', () => {
         { skillKey: 'plugin-skill', slug: 'plugin-skill', name: 'plugin-skill', source: 'openclaw-plugin', disabled: false },
       ],
     });
-    await Promise.resolve();
-    await Promise.resolve();
 
-    expect(useSkillsStore.getState().skills.map((skill) => skill.id)).toEqual(['plugin-skill']);
+    await vi.waitFor(() => {
+      expect(useSkillsStore.getState().skills.map((skill) => skill.id)).toEqual(['plugin-skill']);
+    });
   });
 });

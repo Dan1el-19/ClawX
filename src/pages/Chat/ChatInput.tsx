@@ -11,8 +11,7 @@ import { SendHorizontal, Square, X, Paperclip, FileText, Film, Music, FileArchiv
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { hostApiFetch } from '@/lib/host-api';
-import { invokeIpc } from '@/lib/api-client';
+import { hostApi } from '@/lib/host-api';
 import { cn } from '@/lib/utils';
 import { useGatewayStore } from '@/stores/gateway';
 import { useAgentsStore } from '@/stores/agents';
@@ -27,6 +26,7 @@ import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { rendererExtensionRegistry } from '@/extensions/registry';
 import { collectDroppedFiles } from '@/lib/collect-dropped-files';
+import { fetchQuickAccessSkills } from '@/lib/quick-access-skills';
 
 // ── Types ────────────────────────────────────────────────────────
 
@@ -266,11 +266,10 @@ export function ChatInput({ onSend, onStop, disabled = false, sending = false }:
   useEffect(() => {
     if (gatewayStatus.state === 'running') return;
     let cancelled = false;
-    invokeIpc('gateway:status')
-      .then((status: unknown) => {
+    hostApi.gateway.status()
+      .then((status) => {
         if (cancelled) return;
-        const latest = status as { state?: string };
-        if (latest?.state === 'running') {
+        if (status.state === 'running') {
           void refreshProviderSnapshot();
         }
       })
@@ -387,16 +386,9 @@ export function ChatInput({ onSend, onStop, disabled = false, sending = false }:
     setSkillsLoading(true);
     setSkillsError(null);
     try {
-      const result = await hostApiFetch<{
-        success: boolean;
-        skills?: QuickAccessSkill[];
-        error?: string;
-      }>('/api/skills/quick-access', {
-        method: 'POST',
-        body: JSON.stringify({
-          workspace: currentAgent.workspace,
-          agentDir: currentAgent.agentDir,
-        }),
+      const result = await fetchQuickAccessSkills({
+        workspace: currentAgent.workspace,
+        agentDir: currentAgent.agentDir,
       });
       if (!result.success) {
         throw new Error(result.error || 'Failed to load skills');
@@ -480,17 +472,7 @@ export function ChatInput({ onSend, onStop, disabled = false, sending = false }:
 
     try {
       console.log('[stagePathFiles] Staging files:', filePaths);
-      const staged = await hostApiFetch<Array<{
-        id: string;
-        fileName: string;
-        mimeType: string;
-        fileSize: number;
-        stagedPath: string;
-        preview: string | null;
-      }>>('/api/files/stage-paths', {
-        method: 'POST',
-        body: JSON.stringify({ filePaths }),
-      });
+      const staged = await hostApi.files.stagePaths({ filePaths });
       console.log('[stagePathFiles] Stage result:', staged?.map(s => ({ id: s?.id, fileName: s?.fileName, mimeType: s?.mimeType, fileSize: s?.fileSize, stagedPath: s?.stagedPath, hasPreview: !!s?.preview })));
 
       setAttachments(prev => {
@@ -527,9 +509,9 @@ export function ChatInput({ onSend, onStop, disabled = false, sending = false }:
 
   const pickFiles = useCallback(async () => {
     try {
-      const result = await invokeIpc('dialog:open', {
+      const result = await hostApi.dialog.open({
         properties: ['openFile', 'multiSelections'],
-      }) as { canceled: boolean; filePaths?: string[] };
+      });
       if (result.canceled || !result.filePaths?.length) return;
       await stagePathFiles(result.filePaths);
     } catch (err) {
@@ -556,20 +538,10 @@ export function ChatInput({ onSend, onStop, disabled = false, sending = false }:
         console.log(`[stageBuffer] Reading file: ${file.name} (${file.type}, ${file.size} bytes)`);
         const base64 = await readFileAsBase64(file);
         console.log(`[stageBuffer] Base64 length: ${base64?.length ?? 'null'}`);
-        const staged = await hostApiFetch<{
-          id: string;
-          fileName: string;
-          mimeType: string;
-          fileSize: number;
-          stagedPath: string;
-          preview: string | null;
-        }>('/api/files/stage-buffer', {
-          method: 'POST',
-          body: JSON.stringify({
-            base64,
-            fileName: file.name,
-            mimeType: file.type || 'application/octet-stream',
-          }),
+        const staged = await hostApi.files.stageBuffer({
+          base64,
+          fileName: file.name,
+          mimeType: file.type || 'application/octet-stream',
         });
         console.log(`[stageBuffer] Staged: id=${staged?.id}, path=${staged?.stagedPath}, size=${staged?.fileSize}`);
         setAttachments(prev => prev.map(a =>
