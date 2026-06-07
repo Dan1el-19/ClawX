@@ -1,7 +1,7 @@
 import type { RawMessage } from '../chat/types';
 import type { AgentsSnapshot } from '../types/agent';
 import type { CronJob, CronJobCreateInput, CronJobUpdateInput } from '../types/cron';
-import type { GatewayHealth, GatewayStatus } from '../types/gateway';
+import type { GatewayHealth, GatewayStatus, RuntimeKind } from '../types/gateway';
 import type { MarketplaceSkill, QuickAccessSkill, Skill } from '../types/skill';
 
 export type JsonRecord = Record<string, unknown>;
@@ -103,6 +103,7 @@ export type SettingsSnapshot = Partial<{
   launchAtStartup: boolean;
   telemetryEnabled: boolean;
   gatewayAutoStart: boolean;
+  runtimeKind: RuntimeKind;
   gatewayPort: number;
   proxyEnabled: boolean;
   proxyServer: string;

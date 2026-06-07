@@ -155,6 +155,32 @@
     "proxySaved": "Настройки прокси сохранены",
     "proxySaveFailed": "Не удалось сохранить настройки прокси"
   },
+  "runtime": {
+    "title": "Runtime",
+    "description": "Выберите управляемую ClawX среду agent runtime. OpenClaw остаётся резервным вариантом по умолчанию.",
+    "changed": "Выбор runtime сохранён. Перезапустите runtime, чтобы применить его.",
+    "restart": "Перезапустить Runtime",
+    "restartHint": "При смене runtime предыдущий процесс останавливается; перезапуск применит выбранный runtime.",
+    "configDir": "Каталог конфигурации",
+    "supported": "доступно",
+    "unsupported": "недоступно",
+    "openclawOnly": "Этот инструмент OpenClaw недоступен для выбранного runtime.",
+    "kinds": {
+      "openclaw": "OpenClaw",
+      "cc-connect": "cc-connect"
+    },
+    "capabilities": {
+      "chat": "Чат",
+      "sessions": "Сессии",
+      "history": "История",
+      "providers": "Провайдеры",
+      "channels": "Каналы",
+      "cron": "Cron",
+      "logs": "Логи",
+      "skills": "Skills",
+      "doctor": "Doctor"
+    }
+  },
   "updates": {
     "title": "Обновления",
     "description": "Поддерживайте ClawX в актуальном состоянии",
@@ -218,8 +244,8 @@
     "cliPowershell": "Команда PowerShell.",
     "cmdUnavailable": "Команда недоступна",
     "cmdCopied": "CLI-команда скопирована",
-    "doctor": "OpenClaw Doctor",
-    "doctorDesc": "Запустите `openclaw doctor` и просмотрите вывод диагностики.",
+    "doctor": "Runtime Doctor",
+    "doctorDesc": "Запустите doctor выбранного runtime и просмотрите вывод диагностики.",
     "runDoctor": "Запустить Doctor",
     "runDoctorFix": "Запустить исправление Doctor",
     "doctorSucceeded": "OpenClaw doctor завершён",

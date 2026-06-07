@@ -155,6 +155,32 @@
     "proxySaved": "Proxy settings saved",
     "proxySaveFailed": "Failed to save proxy settings"
   },
+  "runtime": {
+    "title": "Runtime",
+    "description": "Choose the managed agent runtime. OpenClaw remains the default fallback.",
+    "changed": "Runtime selection saved. Restart the runtime to apply it.",
+    "restart": "Restart Runtime",
+    "restartHint": "Switching runtime stops the previous process; restart applies the selected runtime.",
+    "configDir": "Config directory",
+    "supported": "supported",
+    "unsupported": "unavailable",
+    "openclawOnly": "This OpenClaw-specific tool is unavailable for the selected runtime.",
+    "kinds": {
+      "openclaw": "OpenClaw",
+      "cc-connect": "cc-connect"
+    },
+    "capabilities": {
+      "chat": "Chat",
+      "sessions": "Sessions",
+      "history": "History",
+      "providers": "Providers",
+      "channels": "Channels",
+      "cron": "Cron",
+      "logs": "Logs",
+      "skills": "Skills",
+      "doctor": "Doctor"
+    }
+  },
   "updates": {
     "title": "Updates",
     "description": "Keep ClawX up to date",
@@ -218,8 +244,8 @@
     "cliPowershell": "PowerShell command.",
     "cmdUnavailable": "Command unavailable",
     "cmdCopied": "CLI command copied",
-    "doctor": "OpenClaw Doctor",
-    "doctorDesc": "Run `openclaw doctor` and inspect the raw diagnostic output.",
+    "doctor": "Runtime Doctor",
+    "doctorDesc": "Run the selected runtime's doctor command and inspect the raw diagnostic output.",
     "runDoctor": "Run Doctor",
     "runDoctorFix": "Run Doctor Fix",
     "doctorSucceeded": "OpenClaw doctor completed",

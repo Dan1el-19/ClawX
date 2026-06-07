@@ -96,6 +96,8 @@ ClawX 直接基于官方 **OpenClaw** 核心构建。无需单独安装，我们
 
 打开开发者模式后，侧边栏还会提供原生 Dreams 页面，可在 ClawX 内查看 OpenClaw 记忆回顾、梦境日记，并执行基础维护操作；需要更深诊断时仍可从该页面打开完整 OpenClaw Dreams UI。
 
+ClawX 现在也包含 runtime 抽象层。OpenClaw 仍是默认 runtime 和回滚路径，你可以在 **设置 → 网关 → Runtime** 切换到可选的内置 `cc-connect` runtime。打包产物会把 cc-connect 二进制放入应用 resources；cc-connect 使用 ClawX 在 app userData 下托管的配置目录，不会自动修改 `~/.cc-connect`。OpenAI API key、OpenAI OAuth/Codex 和 Ollama provider 选择会被转换为 cc-connect 模式下的托管 Codex 启动 profile。
+
 ---
 
 ## 功能特性

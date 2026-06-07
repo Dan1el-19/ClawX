@@ -95,6 +95,8 @@ ClawXは公式の**OpenClaw**コアを直接ベースに構築されています
 
 開発者モードを有効にすると、サイドバーにはネイティブの Dreams ページも表示され、ClawX 内で OpenClaw の記憶レビュー、夢日記、基本メンテナンス操作を扱えます。詳細な診断が必要な場合は、そのページから完全版の OpenClaw Dreams UI も開けます。
 
+ClawX には runtime 抽象レイヤーもあります。OpenClaw は既定 runtime とロールバック経路のままで、**設定 → Gateway → Runtime** から任意の同梱 `cc-connect` runtime に切り替えられます。パッケージ版は必要な cc-connect バイナリを app resources に含め、cc-connect は `~/.cc-connect` を自動変更せず、app userData 配下の ClawX 管理ディレクトリを使います。OpenAI API key、OpenAI OAuth/Codex、Ollama provider の選択は、cc-connect モード用の ClawX 管理 Codex 起動 profile に変換されます。
+
 ---
 
 ## 機能

@@ -467,6 +467,41 @@ describe('host services', () => {
     );
   });
 
+  it('syncs provider accounts through cc-connect runtime when cc-connect is active', async () => {
+    const account = {
+      id: 'ollama-local',
+      vendorId: 'ollama',
+      label: 'Ollama',
+      authMode: 'local',
+      model: 'qwen3:latest',
+      enabled: true,
+      createdAt: '2026-06-07T00:00:00.000Z',
+      updatedAt: '2026-06-07T00:00:00.000Z',
+    };
+    providerServiceMock.createAccount.mockResolvedValue(account);
+    const runtimeManager = {
+      getActiveKind: vi.fn(async () => 'cc-connect'),
+      rpc: vi.fn(async () => ({ success: true })),
+    };
+    const { createProvidersApi } = await import('@electron/services/providers-api');
+
+    await expect(createProvidersApi({
+      gatewayManager: { debouncedReload: vi.fn() } as never,
+      runtimeManager: runtimeManager as never,
+      mainWindow: {} as never,
+    }).createAccount({ account })).resolves.toEqual({
+      success: true,
+      account,
+    });
+
+    expect(providerServiceMock.createAccount).toHaveBeenCalledWith(account, undefined);
+    expect(runtimeManager.rpc).toHaveBeenCalledWith('providers.sync', {
+      providerId: 'ollama-local',
+      reason: 'save',
+    });
+    expect(syncSavedProviderToRuntimeMock).not.toHaveBeenCalled();
+  });
+
   it('sets the default provider account and syncs runtime defaults', async () => {
     providerServiceMock.getDefaultAccountId.mockResolvedValue('old-default');
     const gatewayManager = { debouncedReload: vi.fn() };

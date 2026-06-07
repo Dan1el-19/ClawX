@@ -10,6 +10,7 @@ import { resolveSupportedLanguage } from '@shared/language';
 
 type Theme = 'light' | 'dark' | 'system';
 type UpdateChannel = 'stable' | 'beta' | 'dev';
+type RuntimeKind = 'openclaw' | 'cc-connect';
 
 interface SettingsState {
   // General
@@ -21,6 +22,7 @@ interface SettingsState {
 
   // Gateway
   gatewayAutoStart: boolean;
+  runtimeKind: RuntimeKind;
   gatewayPort: number;
   proxyEnabled: boolean;
   proxyServer: string;
@@ -49,6 +51,7 @@ interface SettingsState {
   setLaunchAtStartup: (value: boolean) => void;
   setTelemetryEnabled: (value: boolean) => void;
   setGatewayAutoStart: (value: boolean) => void;
+  setRuntimeKind: (value: RuntimeKind) => void;
   setGatewayPort: (port: number) => void;
   setProxyEnabled: (value: boolean) => void;
   setProxyServer: (value: string) => void;
@@ -72,6 +75,7 @@ const defaultSettings = {
   launchAtStartup: false,
   telemetryEnabled: true,
   gatewayAutoStart: true,
+  runtimeKind: 'openclaw' as RuntimeKind,
   gatewayPort: 18789,
   proxyEnabled: false,
   proxyServer: '',
@@ -139,6 +143,10 @@ export const useSettingsStore = create<SettingsState>()(
       setGatewayAutoStart: (gatewayAutoStart) => {
         set({ gatewayAutoStart });
         void hostApi.settings.set('gatewayAutoStart', gatewayAutoStart).catch(() => { });
+      },
+      setRuntimeKind: (runtimeKind) => {
+        set({ runtimeKind });
+        void hostApi.settings.set('runtimeKind', runtimeKind).catch(() => { });
       },
       setGatewayPort: (gatewayPort) => {
         set({ gatewayPort });

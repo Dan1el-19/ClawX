@@ -8,6 +8,7 @@ import { homedir } from 'node:os';
 import { join, extname, basename, resolve, sep, relative } from 'node:path';
 import { syncMacTrafficLightPosition } from './traffic-light-layout';
 import { GatewayManager } from '../gateway/manager';
+import { RuntimeManager } from '../runtime/manager';
 import { ClawHubService } from '../gateway/clawhub';
 import {
   type ProviderConfig,
@@ -80,6 +81,7 @@ const gatewayRpcBackpressure = new GatewayRpcBackpressure();
  */
 export function registerIpcHandlers(
   gatewayManager: GatewayManager,
+  runtimeManager: RuntimeManager,
   clawHubService: ClawHubService,
   mainWindow: BrowserWindow,
   hostApiRegistry: HostApiRegistry,
@@ -88,10 +90,10 @@ export function registerIpcHandlers(
   registerUnifiedRequestHandlers(gatewayManager);
 
   // Typed host invoke handlers (new renderer facade; legacy channels remain available)
-  registerTypedHostHandlers(gatewayManager, clawHubService, mainWindow, hostApiRegistry);
+  registerTypedHostHandlers(gatewayManager, runtimeManager, clawHubService, mainWindow, hostApiRegistry);
 
   // Gateway handlers
-  registerGatewayHandlers(gatewayManager);
+  registerGatewayHandlers(runtimeManager);
 
   // OpenClaw handlers
   registerOpenClawHandlers();
@@ -129,28 +131,29 @@ export function registerIpcHandlers(
 
 function registerTypedHostHandlers(
   gatewayManager: GatewayManager,
+  runtimeManager: RuntimeManager,
   clawHubService: ClawHubService,
   mainWindow: BrowserWindow,
   hostApiRegistry: HostApiRegistry,
 ): void {
   hostApiRegistry.registerCoreServices({
-    app: createAppApi(),
+    app: createAppApi(runtimeManager),
     openclaw: createOpenClawApi(),
     shell: createShellApi(),
     dialog: createDialogApi(),
     window: createWindowApi(mainWindow),
     updates: createUpdatesApi(appUpdater),
     uv: createUvApi(),
-    settings: createSettingsApi(gatewayManager),
-    gateway: createGatewayApi(gatewayManager, gatewayRpcBackpressure),
+    settings: createSettingsApi(gatewayManager, runtimeManager),
+    gateway: createGatewayApi(runtimeManager, gatewayRpcBackpressure, gatewayManager),
     logs: createLogsApi(),
     channels: createChannelsApi({ gatewayManager, mainWindow }),
     agents: createAgentsApi({ gatewayManager }),
-    providers: createProvidersApi({ gatewayManager, mainWindow }),
+    providers: createProvidersApi({ gatewayManager, runtimeManager, mainWindow }),
     files: createFilesApi(),
     media: createMediaApi(),
-    sessions: createSessionsApi(),
-    chat: createChatApi({ gatewayManager }),
+    sessions: createSessionsApi(runtimeManager),
+    chat: createChatApi({ gatewayManager, runtimeManager }),
     cron: createCronApi({ gatewayManager }),
     skills: createSkillsApi({ clawHubService, gatewayManager }),
     usage: createUsageApi(),
@@ -686,10 +689,10 @@ function registerCronHandlers(gatewayManager: GatewayManager): void {
 /**
  * Gateway-related IPC handlers
  */
-function registerGatewayHandlers(gatewayManager: GatewayManager): void {
+function registerGatewayHandlers(runtimeManager: RuntimeManager): void {
   // Get Gateway status
   ipcMain.handle('gateway:status', () => {
-    return gatewayManager.getStatus();
+    return runtimeManager.getStatus();
   });
 
   // Gateway RPC call
@@ -699,7 +702,7 @@ function registerGatewayHandlers(gatewayManager: GatewayManager): void {
         method,
         params,
         timeoutMs,
-        (rpcMethod, rpcParams, rpcTimeoutMs) => gatewayManager.rpc(rpcMethod, rpcParams, rpcTimeoutMs),
+        (rpcMethod, rpcParams, rpcTimeoutMs) => runtimeManager.rpc(rpcMethod, rpcParams, rpcTimeoutMs),
       );
       return { success: true, result };
     } catch (error) {

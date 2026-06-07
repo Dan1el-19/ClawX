@@ -95,6 +95,8 @@ We are committed to maintaining strict alignment with the upstream OpenClaw proj
 
 When Developer Mode is enabled, the sidebar also provides a native Dreams page for OpenClaw memory review, dream diary inspection, and basic maintenance actions. The full upstream OpenClaw Dreams UI remains available from that page when deeper diagnostics are needed.
 
+ClawX also includes a runtime abstraction layer. OpenClaw remains the default runtime and rollback path, while **Settings → Gateway → Runtime** can switch to an optional bundled `cc-connect` runtime. Packaged builds include the required cc-connect binary in app resources; cc-connect uses a ClawX-managed configuration directory under app user data instead of modifying `~/.cc-connect`. OpenAI API key, OpenAI OAuth/Codex, and Ollama provider selections are converted into managed Codex launch profiles for cc-connect mode.
+
 ---
 
 ## Features

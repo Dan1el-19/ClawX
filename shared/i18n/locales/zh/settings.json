@@ -155,6 +155,32 @@
     "proxySaved": "代理设置已保存",
     "proxySaveFailed": "保存代理设置失败"
   },
+  "runtime": {
+    "title": "Runtime",
+    "description": "选择由 ClawX 托管的 agent runtime。OpenClaw 仍是默认和回滚路径。",
+    "changed": "Runtime 选择已保存。请重启 runtime 以应用。",
+    "restart": "重启 Runtime",
+    "restartHint": "切换 runtime 会停止旧进程；重启后使用当前选择的 runtime。",
+    "configDir": "配置目录",
+    "supported": "支持",
+    "unsupported": "不可用",
+    "openclawOnly": "当前 runtime 不支持此 OpenClaw 专属工具。",
+    "kinds": {
+      "openclaw": "OpenClaw",
+      "cc-connect": "cc-connect"
+    },
+    "capabilities": {
+      "chat": "聊天",
+      "sessions": "会话",
+      "history": "历史",
+      "providers": "提供商",
+      "channels": "频道",
+      "cron": "定时任务",
+      "logs": "日志",
+      "skills": "Skills",
+      "doctor": "Doctor"
+    }
+  },
   "updates": {
     "title": "更新",
     "description": "保持 ClawX 最新",
@@ -218,8 +244,8 @@
     "cliPowershell": "PowerShell 命令。",
     "cmdUnavailable": "命令不可用",
     "cmdCopied": "CLI 命令已复制",
-    "doctor": "OpenClaw Doctor 诊断",
-    "doctorDesc": "运行 `openclaw doctor` 并查看原始诊断输出。",
+    "doctor": "Runtime Doctor 诊断",
+    "doctorDesc": "运行当前 runtime 的 doctor 命令并查看原始诊断输出。",
     "runDoctor": "运行 Doctor",
     "runDoctorFix": "运行 Doctor 并修复",
     "doctorSucceeded": "OpenClaw doctor 已完成",

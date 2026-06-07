@@ -174,6 +174,7 @@ class BrowserOAuthManager extends EventEmitter {
       accountId,
       accessToken: token.access,
       refreshToken: token.refresh,
+      idToken: token.idToken,
       expiresAt: token.expires,
       email: oauthTokenEmail,
       subject: oauthTokenSubject,

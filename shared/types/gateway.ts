@@ -14,6 +14,23 @@ export type GatewayRuntimeJsonValue =
 export type GatewayRuntimePayload = GatewayRuntimeJsonValue | undefined;
 export type GatewayRuntimeRecord = { [key: string]: GatewayRuntimeJsonValue | undefined };
 
+export type RuntimeKind = 'openclaw' | 'cc-connect';
+
+export type RuntimeCapabilityName =
+  | 'chat'
+  | 'sessions'
+  | 'history'
+  | 'providers'
+  | 'models'
+  | 'channels'
+  | 'cron'
+  | 'logs'
+  | 'skills'
+  | 'doctor'
+  | 'controlUi';
+
+export type RuntimeCapabilities = Record<RuntimeCapabilityName, boolean>;
+
 /**
  * Gateway connection status
  */
@@ -28,6 +45,9 @@ export interface GatewayStatus {
   reconnectAttempts?: number;
   /** True once the gateway's internal subsystems (skills, plugins) are ready for RPC calls. */
   gatewayReady?: boolean;
+  runtimeKind?: RuntimeKind;
+  capabilities?: RuntimeCapabilities;
+  configDir?: string;
 }
 
 /**

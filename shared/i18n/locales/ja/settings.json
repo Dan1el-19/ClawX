@@ -155,6 +155,32 @@
     "proxySaved": "プロキシ設定を保存しました",
     "proxySaveFailed": "プロキシ設定の保存に失敗しました"
   },
+  "runtime": {
+    "title": "Runtime",
+    "description": "ClawX が管理する agent runtime を選択します。OpenClaw は既定のフォールバックです。",
+    "changed": "Runtime の選択を保存しました。適用するには runtime を再起動してください。",
+    "restart": "Runtime を再起動",
+    "restartHint": "runtime を切り替えると前のプロセスは停止します。再起動後に選択した runtime が使われます。",
+    "configDir": "設定ディレクトリ",
+    "supported": "対応",
+    "unsupported": "利用不可",
+    "openclawOnly": "この OpenClaw 専用ツールは選択中の runtime では利用できません。",
+    "kinds": {
+      "openclaw": "OpenClaw",
+      "cc-connect": "cc-connect"
+    },
+    "capabilities": {
+      "chat": "チャット",
+      "sessions": "セッション",
+      "history": "履歴",
+      "providers": "プロバイダー",
+      "channels": "チャンネル",
+      "cron": "Cron",
+      "logs": "ログ",
+      "skills": "Skills",
+      "doctor": "Doctor"
+    }
+  },
   "updates": {
     "title": "アップデート",
     "description": "ClawX を最新に保つ",
@@ -218,8 +244,8 @@
     "cliPowershell": "PowerShell コマンド。",
     "cmdUnavailable": "コマンドが利用できません",
     "cmdCopied": "CLI コマンドをコピーしました",
-    "doctor": "OpenClaw Doctor",
-    "doctorDesc": "`openclaw doctor` を実行して診断の生出力を確認します。",
+    "doctor": "Runtime Doctor",
+    "doctorDesc": "選択中 runtime の doctor コマンドを実行して診断の生出力を確認します。",
     "runDoctor": "Doctor を実行",
     "runDoctorFix": "Doctor 修復を実行",
     "doctorSucceeded": "OpenClaw doctor が完了しました",
