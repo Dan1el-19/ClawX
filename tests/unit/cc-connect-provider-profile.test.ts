@@ -219,6 +219,88 @@ describe('cc-connect provider profile sync', () => {
     });
   });
 
+  it('converts OpenAI-compatible custom responses providers to Codex provider config args', async () => {
+    getDefaultProviderAccountIdMock.mockResolvedValue('custom-responses');
+    getProviderAccountMock.mockResolvedValue({
+      id: 'custom-responses',
+      vendorId: 'custom',
+      label: 'Custom Responses',
+      authMode: 'api_key',
+      baseUrl: 'https://gateway.example/openai/responses',
+      apiProtocol: 'openai-responses',
+      model: 'gpt-custom',
+      enabled: true,
+      isDefault: true,
+      createdAt: '2026-06-07T00:00:00.000Z',
+      updatedAt: '2026-06-07T00:00:00.000Z',
+    });
+    getProviderSecretMock.mockResolvedValue({
+      type: 'api_key',
+      accountId: 'custom-responses',
+      apiKey: 'custom-secret-value',
+    });
+    const { syncCcConnectProviderProfile } = await import('@electron/runtime/cc-connect-provider-profile');
+
+    const profile = await syncCcConnectProviderProfile();
+
+    expect(profile).toMatchObject({
+      providerId: 'custom-responses',
+      vendorId: 'custom',
+      model: 'gpt-custom',
+      supported: true,
+      env: { CLAWX_CODEX_CUSTOM_API_KEY: 'custom-secret-value' },
+      secretAvailable: true,
+    });
+    expect(profile.codexArgs).toEqual([
+      '-c',
+      'model_provider="clawx-custom"',
+      '-c',
+      'model_providers.clawx-custom.name="Custom Responses"',
+      '-c',
+      'model_providers.clawx-custom.base_url="https://gateway.example/openai"',
+      '-c',
+      'model_providers.clawx-custom.env_key="CLAWX_CODEX_CUSTOM_API_KEY"',
+      '-c',
+      'model_providers.clawx-custom.wire_api="responses"',
+      '--model',
+      'gpt-custom',
+    ]);
+    const profileFile = await readFile(join(tempDir, 'runtimes', 'cc-connect', 'provider-profile.json'), 'utf8');
+    expect(profileFile).toContain('CLAWX_CODEX_CUSTOM_API_KEY');
+    expect(profileFile).not.toContain('custom-secret-value');
+  });
+
+  it('marks custom chat completions providers unsupported because Codex only accepts responses wire api', async () => {
+    getDefaultProviderAccountIdMock.mockResolvedValue('custom-chat');
+    getProviderAccountMock.mockResolvedValue({
+      id: 'custom-chat',
+      vendorId: 'custom',
+      label: 'Custom Chat',
+      authMode: 'api_key',
+      baseUrl: 'https://gateway.example/openai',
+      apiProtocol: 'openai-completions',
+      model: 'gpt-custom',
+      enabled: true,
+      isDefault: true,
+      createdAt: '2026-06-07T00:00:00.000Z',
+      updatedAt: '2026-06-07T00:00:00.000Z',
+    });
+    getProviderSecretMock.mockResolvedValue({
+      type: 'api_key',
+      accountId: 'custom-chat',
+      apiKey: 'custom-secret-value',
+    });
+    const { syncCcConnectProviderProfile } = await import('@electron/runtime/cc-connect-provider-profile');
+
+    await expect(syncCcConnectProviderProfile()).resolves.toMatchObject({
+      providerId: 'custom-chat',
+      vendorId: 'custom',
+      supported: false,
+      unsupportedReason: expect.stringContaining('Chat Completions'),
+      codexArgs: [],
+    });
+  });
+
   it('marks non-Codex-compatible providers unsupported without mutating OpenClaw', async () => {
     getDefaultProviderAccountIdMock.mockResolvedValue('anthropic-main');
     getProviderAccountMock.mockResolvedValue({

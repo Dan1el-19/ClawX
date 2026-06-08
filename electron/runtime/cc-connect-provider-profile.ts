@@ -45,6 +45,14 @@ function publicProfile(profile: CodexProviderProfile): CodexProviderProfile {
   };
 }
 
+function tomlString(value: string): string {
+  return JSON.stringify(value);
+}
+
+function normalizeOpenAIResponsesBaseUrl(baseUrl: string): string {
+  return baseUrl.trim().replace(/\/+$/, '').replace(/\/responses$/i, '');
+}
+
 async function writeManagedOpenAIOAuthAuthFile(
   tokens: OpenAIOAuthTokenSet,
 ): Promise<string> {
@@ -180,6 +188,59 @@ async function buildProfileForAccount(account: ProviderAccount): Promise<CodexPr
       supported: true,
       codexArgs: model ? ['--model', model] : [],
       env,
+    };
+  }
+
+  if (account.vendorId === 'custom') {
+    const protocol = account.apiProtocol || 'openai-completions';
+    if (protocol !== 'openai-responses') {
+      return {
+        ...base,
+        supported: false,
+        unsupportedReason: `cc-connect Codex runtime cannot use custom provider "${account.label}" because Codex 0.137 only supports the Responses wire API. This provider is configured for Chat Completions.`,
+        codexArgs: [],
+      };
+    }
+
+    const baseUrl = account.baseUrl?.trim();
+    if (!baseUrl) {
+      return {
+        ...base,
+        supported: false,
+        unsupportedReason: `cc-connect Codex runtime cannot use custom provider "${account.label}" because a Responses-compatible base URL is required.`,
+        codexArgs: [],
+      };
+    }
+
+    if ((secret?.type !== 'api_key' && secret?.type !== 'local') || !secret.apiKey) {
+      return {
+        ...base,
+        supported: false,
+        unsupportedReason: `cc-connect Codex runtime cannot use custom provider "${account.label}" because its API key is missing.`,
+        codexArgs: [],
+      };
+    }
+
+    const providerKey = 'clawx-custom';
+    const envKey = 'CLAWX_CODEX_CUSTOM_API_KEY';
+    const normalizedBaseUrl = normalizeOpenAIResponsesBaseUrl(baseUrl);
+    return {
+      ...base,
+      supported: true,
+      codexArgs: [
+        '-c',
+        `model_provider=${tomlString(providerKey)}`,
+        '-c',
+        `model_providers.${providerKey}.name=${tomlString(account.label || 'Custom')}`,
+        '-c',
+        `model_providers.${providerKey}.base_url=${tomlString(normalizedBaseUrl)}`,
+        '-c',
+        `model_providers.${providerKey}.env_key=${tomlString(envKey)}`,
+        '-c',
+        `model_providers.${providerKey}.wire_api="responses"`,
+        ...(model ? ['--model', model] : []),
+      ],
+      env: { [envKey]: secret.apiKey },
     };
   }
 

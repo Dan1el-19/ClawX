@@ -189,6 +189,41 @@ describe('CcConnectRuntimeProvider', () => {
     });
   });
 
+  it('rejects chat sends before bridge delivery when selected provider is unsupported', async () => {
+    const binaryPath = join(tempDir, 'cc-connect');
+    await writeFile(binaryPath, '#!/bin/sh\n', { mode: 0o755 });
+    const bridgeAdapter = createBridgeAdapterMock();
+    const { CcConnectRuntimeProvider } = await import('@electron/runtime/cc-connect-provider');
+    const provider = new CcConnectRuntimeProvider({
+      binaryPath,
+      codexPath: join(tempDir, 'codex'),
+      codexBridge: createBridgeMock() as never,
+      bridgeAdapter: bridgeAdapter as never,
+      skillSyncer: vi.fn(async () => ({ skills: [] })),
+      providerProfileLoader: vi.fn(async () => createProviderProfile({
+        providerId: 'custom-chat',
+        vendorId: 'custom',
+        supported: false,
+        unsupportedReason: 'Custom Chat Completions is not supported by Codex',
+        codexArgs: [],
+      })) as never,
+    });
+    const child = createChild();
+    forkMock.mockReturnValueOnce(child);
+
+    const startPromise = provider.start();
+    await vi.waitFor(() => expect(forkMock).toHaveBeenCalledOnce());
+    child.emit('spawn');
+    await startPromise;
+
+    await expect(provider.sendMessageWithMedia({
+      sessionKey: 'agent:main:main',
+      idempotencyKey: 'send-1',
+      message: 'hello',
+    })).rejects.toThrow('Custom Chat Completions is not supported by Codex');
+    expect(bridgeAdapter.send).not.toHaveBeenCalled();
+  });
+
   it('routes chat, sessions, history, and delete to the Codex bridge', async () => {
     const binaryPath = join(tempDir, 'cc-connect');
     await writeFile(binaryPath, '#!/bin/sh\n', { mode: 0o755 });

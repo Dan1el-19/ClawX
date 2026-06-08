@@ -136,6 +136,7 @@ export class CcConnectRuntimeProvider extends EventEmitter implements RuntimePro
   private readonly binaryPath?: string;
   private readonly codexPath?: string;
   private readonly codexBundle?: CodexBundle;
+  private currentProviderProfile: CodexProviderProfile | null = null;
 
   constructor(options: CcConnectRuntimeProviderOptions = {}) {
     super();
@@ -264,6 +265,9 @@ export class CcConnectRuntimeProvider extends EventEmitter implements RuntimePro
   }
 
   async sendMessageWithMedia(payload: RuntimeSendWithMediaPayload) {
+    if (this.currentProviderProfile && !this.currentProviderProfile.supported) {
+      throw new Error(this.currentProviderProfile.unsupportedReason || 'Selected provider is not supported by the cc-connect Codex runtime');
+    }
     return await this.bridgeAdapter.send(payload);
   }
 
@@ -451,6 +455,7 @@ export class CcConnectRuntimeProvider extends EventEmitter implements RuntimePro
 
   private async loadAndApplyProviderProfile(payload?: { providerId?: string; reason?: string }): Promise<CodexProviderProfile> {
     const profile = await this.providerProfileLoader(payload);
+    this.currentProviderProfile = profile;
     this.codexBridge.setProviderProfile(profile);
     return profile;
   }

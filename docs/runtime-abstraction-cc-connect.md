@@ -33,7 +33,7 @@ ClawX currently treats OpenClaw Gateway as the only runtime. That keeps the rend
 | Chat | Supported | Adapter-dependent | Stable unsupported error |
 | Sessions | Supported | Adapter-dependent | Empty/stable response or unsupported |
 | History | Supported | Adapter-dependent | Empty/stable response or unsupported |
-| Providers/models | Supported | OpenAI API key, OpenAI OAuth/Codex, and Ollama supported through Codex launch profile | Unsupported providers return stable errors and do not mutate OpenClaw config |
+| Providers/models | Supported | OpenAI API key, OpenAI OAuth/Codex, OpenAI-compatible Responses Custom providers, and Ollama supported through Codex launch profile | Chat Completions Custom providers and unsupported vendors return stable errors and do not mutate OpenClaw config |
 | Channels | Supported | Adapter-dependent | Capability-aware degradation |
 | Cron | Supported | Not first-version parity | Disabled or stable unsupported |
 | Logs/status | Supported | Supported through process logs/status | Runtime manager log/status surface |
@@ -185,7 +185,7 @@ depends on OpenClaw Gateway.
   - `RuntimeManager` default selection, switching, fallback, and event forwarding.
 	  - `OpenClawRuntimeProvider` preserves Gateway behavior.
 	  - `CcConnectRuntimeProvider` mock binary startup, stop, crash, config path, provider profile, and logs.
-	  - cc-connect provider profile conversion for OpenAI/Codex, Ollama, and unsupported providers.
+	  - cc-connect provider profile conversion for OpenAI/Codex, OpenAI-compatible Responses Custom providers, Ollama, and unsupported providers.
   - cc-connect bundler URL mapping, manifest generation, version mismatch, and failure cases.
 - Integration:
   - Host API returns stable envelopes in both runtimes.

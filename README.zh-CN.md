@@ -98,6 +98,8 @@ ClawX 直接基于官方 **OpenClaw** 核心构建。无需单独安装，我们
 
 ClawX 现在也包含 runtime 抽象层。OpenClaw 仍是默认 runtime 和回滚路径，你可以在 **设置 → 网关 → Runtime** 切换到可选的内置 `cc-connect` runtime。打包产物会同时内置 cc-connect 二进制和 OpenAI Codex 原生 CLI bundle；runtime 启动不依赖全局安装、PATH 二进制或运行时下载。cc-connect 使用 ClawX 在 app userData 下托管的配置目录，不会自动修改 `~/.cc-connect`，GUI chat 会通过 cc-connect BridgePlatform 连接到 Codex project agent。Provider/model、cron 任务和已启用 skills 会同步到托管的 cc-connect/Codex runtime。
 
+在 cc-connect 模式下，Codex provider 同步支持 OpenAI API Key、OpenAI OAuth/Codex、Ollama，以及暴露 Responses API 的 OpenAI-compatible Custom provider。配置为 Chat Completions 的 Custom provider 会在 chat 投递前被明确标记为不支持，因为 Codex 0.137 只接受 Responses wire API。
+
 ---
 
 ## 功能特性

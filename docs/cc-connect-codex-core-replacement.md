@@ -80,6 +80,8 @@ The cc-connect runtime converts the active ClawX provider account into a Codex l
 
 - OpenAI API key accounts: `codex exec --model <model>` with `OPENAI_API_KEY` in the child process environment.
 - OpenAI OAuth browser accounts: `codex exec --model <model>` with `CODEX_HOME` pointing at `app userData/runtimes/cc-connect/codex-home/`. ClawX writes a managed Codex `auth.json` from the stored OpenAI OAuth access, refresh, optional ID token, and account id.
+- OpenAI-compatible Custom providers: supported only when configured for `openai-responses`; ClawX passes Codex `model_provider`, `model_providers.<name>.base_url`, `env_key`, and `wire_api="responses"` overrides while keeping the API key in process environment only.
+- Custom providers configured for Chat Completions are rejected before chat delivery with a stable unsupported reason because Codex 0.137 no longer accepts the Chat Completions wire API.
 - Ollama local accounts: `codex exec --oss --local-provider ollama --model <model>`.
 - Unsupported vendors return a stable unsupported error before spawning Codex and do not mutate OpenClaw configuration.
 - Codex child processes inherit ClawX proxy settings as `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, and `NO_PROXY` environment variables, matching Gateway launch behavior.
@@ -122,7 +124,7 @@ Current implemented capability flags for cc-connect mode:
 - Unit tests prove `cc-connect` runtime starts a managed cc-connect process and sends through the ClawX bridge adapter.
 - Unit tests prove sessions/history/delete operate from managed storage.
 - Unit tests prove Doctor includes Codex CLI diagnostics.
-- Unit tests prove OpenAI and Ollama provider accounts convert to Codex launch profiles without writing secrets to disk.
+- Unit tests prove OpenAI, OpenAI-compatible Responses, and Ollama provider accounts convert to Codex launch profiles without writing secrets to disk, and Chat Completions Custom providers are rejected before bridge delivery.
 - Unit tests prove cc-connect/Codex child processes inherit ClawX proxy environment values.
 - E2E tests prove a ClawX-managed cc-connect runtime can start from Settings-seeded config, write managed `config.toml`, send a real UI chat through the Codex bridge, and read back managed history through Host API.
 - E2E tests prove the managed config points cc-connect at the bundled Codex binary and enables the bridge.
