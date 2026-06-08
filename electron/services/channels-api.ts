@@ -73,6 +73,7 @@ import {
 import { buildGatewayHealthSummary } from '../utils/gateway-health';
 import { logger } from '../utils/logger';
 import type { GatewayManager, GatewayHealthSummary } from '../gateway/manager';
+import type { RuntimeManager } from '../runtime/manager';
 import { isRecord } from './payload-utils';
 
 const WECHAT_QR_TIMEOUT_MS = 8 * 60 * 1000;
@@ -83,6 +84,7 @@ async function listWhatsAppDirectoryPeersFromConfig(_params: unknown): Promise<u
 
 type ChannelsApiContext = {
   gatewayManager: GatewayManager;
+  runtimeManager?: RuntimeManager;
   mainWindow?: BrowserWindow;
 };
 
@@ -265,11 +267,12 @@ export async function buildChannelAccountsView(
   ]);
 
   let gatewayStatus: GatewayChannelStatusPayload | null = null;
+  const runtimeStatusSource = ctx.runtimeManager ?? ctx.gatewayManager;
   if (!skipRuntime) {
     try {
       const probe = options?.probe === true;
       const rpcStartedAt = Date.now();
-      gatewayStatus = await ctx.gatewayManager.rpc<GatewayChannelStatusPayload>(
+      gatewayStatus = await runtimeStatusSource.rpc<GatewayChannelStatusPayload>(
         'channels.status',
         { probe },
         probe ? 5000 : 8000,
@@ -292,8 +295,9 @@ export async function buildChannelAccountsView(
     consecutiveHeartbeatMisses: 0,
     consecutiveRpcFailures: 0,
   };
+  const status = ctx.runtimeManager?.getStatus() ?? ctx.gatewayManager.getStatus();
   const gatewayHealth = buildGatewayHealthSummary({
-    status: ctx.gatewayManager.getStatus(),
+    status,
     diagnostics: gatewayDiagnostics,
     lastChannelsStatusOkAt,
     lastChannelsStatusFailureAt,
@@ -379,7 +383,7 @@ export async function buildChannelAccountsView(
     const baseGroupStatus = pickChannelRuntimeStatus(visibleAccountSnapshots, channelSummary, {
       gatewayHealthState: effectiveGatewayHealthState,
     });
-    const groupStatus = !gatewayStatus && !skipRuntime && ctx.gatewayManager.getStatus().state === 'running'
+    const groupStatus = !gatewayStatus && !skipRuntime && status.state === 'running'
       ? 'degraded'
       : effectiveGatewayHealthState && !hasRuntimeError && baseGroupStatus === 'connected'
         ? 'degraded'
@@ -391,7 +395,7 @@ export async function buildChannelAccountsView(
       channelType: uiChannelType,
       defaultAccountId,
       status: groupStatus,
-      statusReason: !gatewayStatus && !skipRuntime && ctx.gatewayManager.getStatus().state === 'running'
+      statusReason: !gatewayStatus && !skipRuntime && status.state === 'running'
         ? 'channels_status_timeout'
         : groupStatus === 'degraded' && effectiveGatewayHealthState
           ? overlayStatusReason(gatewayHealth, 'gateway_degraded')

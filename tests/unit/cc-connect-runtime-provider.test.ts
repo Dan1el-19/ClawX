@@ -189,6 +189,23 @@ describe('CcConnectRuntimeProvider', () => {
     });
   });
 
+  it('returns a stable channel status snapshot for cc-connect channel-capable runtime', async () => {
+    const binaryPath = join(tempDir, 'cc-connect');
+    await writeFile(binaryPath, '#!/bin/sh\n', { mode: 0o755 });
+    const { CcConnectRuntimeProvider } = await import('@electron/runtime/cc-connect-provider');
+    const provider = new CcConnectRuntimeProvider({
+      binaryPath,
+      codexBridge: createBridgeMock() as never,
+      skillSyncer: vi.fn(async () => ({ skills: [] })),
+    });
+
+    await expect(provider.rpc('channels.status', { probe: true })).resolves.toEqual({
+      channels: {},
+      channelAccounts: {},
+      channelDefaultAccountId: {},
+    });
+  });
+
   it('rejects chat sends before bridge delivery when selected provider is unsupported', async () => {
     const binaryPath = join(tempDir, 'cc-connect');
     await writeFile(binaryPath, '#!/bin/sh\n', { mode: 0o755 });

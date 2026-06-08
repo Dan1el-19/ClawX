@@ -147,7 +147,7 @@ function registerTypedHostHandlers(
     settings: createSettingsApi(gatewayManager, runtimeManager),
     gateway: createGatewayApi(runtimeManager, gatewayRpcBackpressure, gatewayManager),
     logs: createLogsApi(),
-    channels: createChannelsApi({ gatewayManager, mainWindow }),
+    channels: createChannelsApi({ gatewayManager, runtimeManager, mainWindow }),
     agents: createAgentsApi({ gatewayManager }),
     providers: createProvidersApi({ gatewayManager, runtimeManager, mainWindow }),
     files: createFilesApi(),

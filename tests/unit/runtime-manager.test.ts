@@ -93,6 +93,12 @@ describe('RuntimeManager', () => {
     expect(manager.listCapabilities().controlUi).toBe(false);
   });
 
+  it('marks cc-connect channels as supported because cc-connect owns messaging platforms', async () => {
+    const { CC_CONNECT_RUNTIME_CAPABILITIES } = await import('@electron/runtime/types');
+
+    expect(CC_CONNECT_RUNTIME_CAPABILITIES.channels).toBe(true);
+  });
+
   it('forwards provider status events with runtimeKind preserved', async () => {
     const { RuntimeManager } = await import('@electron/runtime/manager');
     const openclawFixture = createProvider('openclaw');

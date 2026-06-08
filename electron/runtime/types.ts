@@ -102,7 +102,7 @@ export const CC_CONNECT_RUNTIME_CAPABILITIES: RuntimeCapabilities = {
   history: true,
   providers: true,
   models: true,
-  channels: false,
+  channels: true,
   cron: true,
   logs: true,
   skills: true,

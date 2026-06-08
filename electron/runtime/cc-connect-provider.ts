@@ -247,6 +247,8 @@ export class CcConnectRuntimeProvider extends EventEmitter implements RuntimePro
           success: true,
           runtimeKind: this.kind,
         } as T;
+      case 'channels.status':
+        return await this.getChannelStatus() as T;
       case 'cron.list':
         return await this.listCronJobs() as T;
       case 'cron.create':
@@ -309,6 +311,47 @@ export class CcConnectRuntimeProvider extends EventEmitter implements RuntimePro
     const sessionKey = getSessionKey(payload);
     await this.bridgeAdapter.deleteSession(sessionKey);
     return { success: true };
+  }
+
+  async getChannelStatus(): Promise<{
+    channels: Record<string, { configured: boolean; running: boolean }>;
+    channelAccounts: Record<string, Array<{
+      accountId: string;
+      configured: boolean;
+      connected: boolean;
+      running: boolean;
+      linked: boolean;
+      name: string;
+    }>>;
+    channelDefaultAccountId: Record<string, string>;
+  }> {
+    const configuredTypes = await this.listConfiguredPlatformTypes();
+    const running = this.status.state === 'running';
+    const channels: Record<string, { configured: boolean; running: boolean }> = {};
+    const channelAccounts: Record<string, Array<{
+      accountId: string;
+      configured: boolean;
+      connected: boolean;
+      running: boolean;
+      linked: boolean;
+      name: string;
+    }>> = {};
+    const channelDefaultAccountId: Record<string, string> = {};
+
+    for (const channelType of configuredTypes) {
+      channels[channelType] = { configured: true, running };
+      channelAccounts[channelType] = [{
+        accountId: 'default',
+        configured: true,
+        connected: running,
+        running,
+        linked: true,
+        name: channelType,
+      }];
+      channelDefaultAccountId[channelType] = 'default';
+    }
+
+    return { channels, channelAccounts, channelDefaultAccountId };
   }
 
   async listLogs() {
@@ -486,6 +529,22 @@ export class CcConnectRuntimeProvider extends EventEmitter implements RuntimePro
         ? result.jobs
         : [];
     return jobs.map((job) => transformCcConnectCronJob(job));
+  }
+
+  private async listConfiguredPlatformTypes(): Promise<string[]> {
+    const configPath = getCcConnectConfigPath();
+    const content = existsSync(configPath)
+      ? await readFile(configPath, 'utf8').catch(() => '')
+      : '';
+    if (!content.trim()) return [];
+
+    const platformTypes = new Set<string>();
+    for (const block of content.split(/\[\[projects\.platforms\]\]/g).slice(1)) {
+      const match = block.match(/^\s*type\s*=\s*"([^"]+)"/m);
+      const channelType = match?.[1]?.trim();
+      if (channelType) platformTypes.add(channelType);
+    }
+    return [...platformTypes].sort();
   }
 
   private async createCronJob(payload: unknown): Promise<CronJob> {

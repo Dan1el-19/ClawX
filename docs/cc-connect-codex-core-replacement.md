@@ -13,7 +13,7 @@ When `cc-connect` is selected as the runtime, ClawX should provide a working cor
 - GUI chat sends prompts through cc-connect BridgePlatform to the Codex project agent.
 - Sessions and history are exposed through the cc-connect bridge adapter under ClawX-managed app data.
 - Runtime status, logs, and Doctor are runtime-aware.
-- Provider, cron, and channel surfaces degrade through cc-connect capability checks instead of writing OpenClaw config.
+- Provider, cron, and channel surfaces route through cc-connect capability checks instead of assuming OpenClaw Gateway.
 
 ## Accepted Architecture
 
@@ -54,7 +54,7 @@ ClawX registers a local `clawx` BridgePlatform adapter over cc-connect WebSocket
 | Providers/models | ClawX syncs the active provider account into `provider-profile.json` and cc-connect project config/env. |
 | Cron | Host cron APIs route to cc-connect Management API when cc-connect runtime is active. |
 | Skills | Enabled local skills are mirrored into managed `codex-home/skills`. |
-| Channels | Channel-specific OpenClaw configuration remains unavailable in cc-connect mode. |
+| Channels | cc-connect owns messaging platform bridges; ClawX routes channel status probes through the active runtime. |
 
 ## Managed Paths
 
@@ -117,7 +117,8 @@ Current implemented capability flags for cc-connect mode:
 - `doctor`: supported through cc-connect Doctor plus Codex CLI diagnostics
 - `cron`: supported through cc-connect Management API
 - `skills`: supported through managed Codex home mirroring
-- `channels`, `controlUi`: not yet marked supported in the runtime capability matrix
+- `channels`: supported through cc-connect platform bridge status snapshots
+- `controlUi`: not yet marked supported in the runtime capability matrix
 
 ## Acceptance
 

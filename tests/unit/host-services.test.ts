@@ -603,6 +603,71 @@ describe('host services', () => {
     expect(gatewayManager.rpc).not.toHaveBeenCalled();
   });
 
+  it('probes active runtime for channel status when runtime manager is provided', async () => {
+    readOpenClawConfigMock.mockResolvedValue({
+      channels: {
+        feishu: {
+          accounts: {
+            team_bot: { enabled: true },
+          },
+          defaultAccount: 'team_bot',
+        },
+      },
+    });
+    listConfiguredChannelsFromConfigMock.mockResolvedValue(['feishu']);
+    listConfiguredChannelAccountsFromConfigMock.mockReturnValue({
+      feishu: {
+        defaultAccountId: 'team_bot',
+        accountIds: ['team_bot'],
+      },
+    });
+    const gatewayManager = {
+      rpc: vi.fn(),
+      getStatus: vi.fn(() => ({ state: 'stopped', port: 18789 })),
+      getDiagnostics: vi.fn(() => ({ consecutiveHeartbeatMisses: 0, consecutiveRpcFailures: 0 })),
+    };
+    const runtimeManager = {
+      rpc: vi.fn(async () => ({
+        channelAccounts: {
+          feishu: [{
+            accountId: 'team_bot',
+            configured: true,
+            connected: true,
+            running: true,
+            linked: true,
+          }],
+        },
+      })),
+      getStatus: vi.fn(() => ({
+        state: 'running',
+        port: 9820,
+        runtimeKind: 'cc-connect',
+        capabilities: { channels: true },
+      })),
+    };
+    const { createChannelsApi } = await import('@electron/services/channels-api');
+
+    await expect(createChannelsApi({
+      gatewayManager: gatewayManager as never,
+      runtimeManager: runtimeManager as never,
+    }).accounts({ mode: 'runtime', probe: true })).resolves.toMatchObject({
+      success: true,
+      channels: [{
+        channelType: 'feishu',
+        status: 'connected',
+        accounts: [{
+          accountId: 'team_bot',
+          connected: true,
+          running: true,
+          linked: true,
+        }],
+      }],
+    });
+
+    expect(runtimeManager.rpc).toHaveBeenCalledWith('channels.status', { probe: true }, 5000);
+    expect(gatewayManager.rpc).not.toHaveBeenCalled();
+  });
+
   it('lists channel targets from session history and validates channel type', async () => {
     const sessionsDir = join(testOpenClawConfigDir, 'agents', 'main', 'sessions');
     mkdirSync(sessionsDir, { recursive: true });
