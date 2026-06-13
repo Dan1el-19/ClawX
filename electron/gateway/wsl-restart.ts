@@ -4,14 +4,14 @@ import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFileCallback);
 
-type RestartWslGatewayOptions = {
+type WslGatewayOptions = {
   distro: string;
   linuxUser: string;
   host: string;
   port: number;
 };
 
-type RestartWslGatewayDependencies = {
+type WslGatewayDependencies = {
   execFile: (
     file: string,
     args: string[],
@@ -19,6 +19,36 @@ type RestartWslGatewayDependencies = {
   ) => Promise<unknown>;
   waitForPort: (host: string, port: number, stableForMs: number) => Promise<void>;
 };
+
+async function runWslGatewayServiceAction(
+  action: 'start' | 'restart',
+  options: WslGatewayOptions,
+  dependencies: WslGatewayDependencies,
+): Promise<void> {
+  const distro = options.distro.trim();
+  const linuxUser = options.linuxUser.trim();
+  if (!distro) {
+    throw new Error(`A WSL2 distribution is required to ${action} the external Gateway`);
+  }
+
+  const args = ['-d', distro];
+  if (linuxUser) {
+    args.push('--user', linuxUser);
+  }
+  args.push(
+    '--exec',
+    '/bin/systemctl',
+    '--user',
+    action,
+    'openclaw-gateway.service',
+  );
+
+  await dependencies.execFile('wsl.exe', args, {
+    timeout: 30_000,
+    windowsHide: true,
+  });
+  await dependencies.waitForPort(options.host, options.port, 2_000);
+}
 
 async function waitForTcpPort(
   host: string,
@@ -54,33 +84,21 @@ async function waitForTcpPort(
 }
 
 export async function restartWslGateway(
-  options: RestartWslGatewayOptions,
-  dependencies: RestartWslGatewayDependencies = {
+  options: WslGatewayOptions,
+  dependencies: WslGatewayDependencies = {
     execFile: execFileAsync,
     waitForPort: waitForTcpPort,
   },
 ): Promise<void> {
-  const distro = options.distro.trim();
-  const linuxUser = options.linuxUser.trim();
-  if (!distro) {
-    throw new Error('A WSL2 distribution is required to restart the external Gateway');
-  }
+  await runWslGatewayServiceAction('restart', options, dependencies);
+}
 
-  const args = ['-d', distro];
-  if (linuxUser) {
-    args.push('--user', linuxUser);
-  }
-  args.push(
-    '--exec',
-    '/bin/systemctl',
-    '--user',
-    'restart',
-    'openclaw-gateway.service',
-  );
-
-  await dependencies.execFile('wsl.exe', args, {
-    timeout: 30_000,
-    windowsHide: true,
-  });
-  await dependencies.waitForPort(options.host, options.port, 2_000);
+export async function startWslGateway(
+  options: WslGatewayOptions,
+  dependencies: WslGatewayDependencies = {
+    execFile: execFileAsync,
+    waitForPort: waitForTcpPort,
+  },
+): Promise<void> {
+  await runWslGatewayServiceAction('start', options, dependencies);
 }

@@ -18,8 +18,8 @@ WSL2. In Settings > Gateway, enable **External Gateway**, enter the host, port,
 and Gateway token, then choose **Save and Reconnect**.
 
 External mode normally manages only the client connection. On Windows, setting
-a WSL2 distribution enables **Restart Gateway** to restart the
-`openclaw-gateway.service` user service inside WSL2. ClawX does not repair,
+a WSL2 distribution lets ClawX start `openclaw-gateway.service` after a failed
+connection and enables **Restart Gateway** to restart it. ClawX does not repair,
 reload, shut down, or terminate other external Gateways. Features that directly
 read the local Windows OpenClaw directory are not redirected into WSL2.
 

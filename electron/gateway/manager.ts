@@ -66,7 +66,7 @@ import {
   selectGatewayToken,
   type GatewayTarget,
 } from './target';
-import { restartWslGateway } from './wsl-restart';
+import { restartWslGateway, startWslGateway } from './wsl-restart';
 import type {
   GatewayChannelStatusEvent,
   GatewayChatMessageEvent,
@@ -388,7 +388,28 @@ export class GatewayManager extends EventEmitter {
 
     try {
       if (this.target.external) {
-        await this.connect(this.target.port);
+        try {
+          await this.connect(this.target.port);
+        } catch (initialError) {
+          const wslDistro = process.platform === 'win32'
+            ? (await getSetting('gatewayWslDistro')).trim()
+            : '';
+          if (!wslDistro) {
+            throw initialError;
+          }
+          logger.warn(
+            `[gateway-recovery] external Gateway unavailable; starting WSL2 service (distro=${wslDistro})`,
+            initialError,
+          );
+          await startWslGateway({
+            distro: wslDistro,
+            linuxUser: (await getSetting('gatewayWslUser')).trim(),
+            host: this.target.host,
+            port: this.target.port,
+          });
+          this.lifecycleController.assert(startEpoch, 'start/recover-external-wsl');
+          await this.connect(this.target.port);
+        }
         this.lifecycleController.assert(startEpoch, 'start/connect-external');
         this.ownsProcess = false;
         this.setStatus({ pid: undefined });

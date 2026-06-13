@@ -19,8 +19,9 @@ OpenClaw Gateway in Ubuntu WSL2
 ```
 
 External mode normally manages only the client connection. When a WSL2
-distribution is configured in ClawX, **Restart Gateway** can restart the
-`openclaw-gateway.service` user service without opening a console window.
+distribution is configured in ClawX, it starts `openclaw-gateway.service`
+after a failed connection and **Restart Gateway** restarts the service without
+opening a console window.
 
 ## Requirements
 
@@ -80,19 +81,19 @@ Test-NetConnection 127.0.0.1 -Port 18789
 
 WSL2 can stop a distribution after its last Linux process exits. A lightweight
 Windows Scheduled Task can keep the distribution available after login without
-opening a console window. Register the included hidden keep-alive script:
+opening a console window. Register `wsl.exe` directly so Task Scheduler owns
+and monitors the long-running process:
 
 ```powershell
-$script = (Resolve-Path '.\scripts\windows\wsl-keepalive.vbs').Path
 $action = New-ScheduledTaskAction `
-  -Execute "$env:SystemRoot\System32\wscript.exe" `
-  -Argument "//B //Nologo `"$script`" Ubuntu"
-$trigger = New-ScheduledTaskTrigger -AtLogOn
+  -Execute "$env:SystemRoot\System32\wsl.exe" `
+  -Argument '-d Ubuntu --user daniel --exec /bin/sleep infinity'
+$trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
 $settings = New-ScheduledTaskSettingsSet `
-  -Hidden `
   -AllowStartIfOnBatteries `
   -DontStopIfGoingOnBatteries `
-  -ExecutionTimeLimit ([TimeSpan]::Zero)
+  -ExecutionTimeLimit ([TimeSpan]::Zero) `
+  -MultipleInstances IgnoreNew
 
 Register-ScheduledTask `
   -TaskName 'OpenClaw WSL2 Host' `
@@ -101,11 +102,12 @@ Register-ScheduledTask `
   -Settings $settings `
   -Description 'Keeps WSL2 running for the OpenClaw gateway.' `
   -Force
+
+Start-ScheduledTask -TaskName 'OpenClaw WSL2 Host'
 ```
 
-Pass the Linux user after the distribution name when it differs from the WSL
-default user, for example `Ubuntu daniel`. Adjust the distribution name if it
-is not `Ubuntu`.
+Adjust the distribution and Linux user in `-Argument` when they differ from
+`Ubuntu` and `daniel`.
 
 ## Connect ClawX
 

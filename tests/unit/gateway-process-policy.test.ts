@@ -54,9 +54,9 @@ describe('gateway process policy helpers', () => {
   });
 
   describe('restart deferral policy', () => {
-    it('defers restart while startup or reconnect is in progress', () => {
+    it('defers restart only while a start flow is actively in progress', () => {
       expect(shouldDeferRestart({ state: 'starting', startLock: false })).toBe(true);
-      expect(shouldDeferRestart({ state: 'reconnecting', startLock: false })).toBe(true);
+      expect(shouldDeferRestart({ state: 'reconnecting', startLock: false })).toBe(false);
       expect(shouldDeferRestart({ state: 'running', startLock: true })).toBe(true);
     });
 

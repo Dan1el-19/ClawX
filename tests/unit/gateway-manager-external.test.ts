@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => {
   return {
     settings,
     connectGatewaySocket: vi.fn(),
+    startWslGateway: vi.fn(async () => undefined),
     restartWslGateway: vi.fn(async () => undefined),
     runGatewayStartupSequence: vi.fn(),
     warmupManagedPythonReadiness: vi.fn(),
@@ -57,6 +58,7 @@ vi.mock('@electron/gateway/ws-client', async (importOriginal) => ({
 }));
 
 vi.mock('@electron/gateway/wsl-restart', () => ({
+  startWslGateway: mocks.startWslGateway,
   restartWslGateway: mocks.restartWslGateway,
 }));
 
@@ -169,5 +171,45 @@ describe('GatewayManager external gateway lifecycle', () => {
       port: 18789,
     });
     expect(mocks.connectGatewaySocket).toHaveBeenCalledTimes(2);
+  });
+
+  it('restarts a configured WSL2 gateway immediately while reconnect is pending', async () => {
+    Object.defineProperty(process, 'platform', { value: 'win32' });
+    mocks.settings.gatewayWslDistro = 'Ubuntu';
+    mocks.settings.gatewayWslUser = 'daniel';
+    const { GatewayManager } = await import('@electron/gateway/manager');
+    const manager = new GatewayManager();
+    await manager.start();
+    const options = mocks.connectGatewaySocket.mock.calls[0][0] as {
+      onCloseAfterHandshake: (code: number) => void;
+    };
+    options.onCloseAfterHandshake(1012);
+    expect(manager.getStatus().state).toBe('reconnecting');
+
+    await manager.restart();
+
+    expect(mocks.restartWslGateway).toHaveBeenCalledTimes(1);
+    expect(manager.getStatus().state).toBe('running');
+  });
+
+  it('starts a configured WSL2 gateway and retries when the first connection fails', async () => {
+    Object.defineProperty(process, 'platform', { value: 'win32' });
+    mocks.settings.gatewayWslDistro = 'Ubuntu';
+    mocks.settings.gatewayWslUser = 'daniel';
+    mocks.connectGatewaySocket
+      .mockRejectedValueOnce(new Error('connect ECONNREFUSED 127.0.0.1:18789'));
+    const { GatewayManager } = await import('@electron/gateway/manager');
+    const manager = new GatewayManager();
+
+    await manager.start();
+
+    expect(mocks.startWslGateway).toHaveBeenCalledWith({
+      distro: 'Ubuntu',
+      linuxUser: 'daniel',
+      host: '127.0.0.1',
+      port: 18789,
+    });
+    expect(mocks.connectGatewaySocket).toHaveBeenCalledTimes(2);
+    expect(manager.getStatus().state).toBe('running');
   });
 });

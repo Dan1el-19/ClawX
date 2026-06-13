@@ -35,4 +35,39 @@ describe('restartWslGateway', () => {
     );
     expect(waitForPort).toHaveBeenCalledWith('127.0.0.1', 18789, 2_000);
   });
+
+  it('starts the configured user service and waits until it is reachable', async () => {
+    const execFile = vi.fn(async () => ({ stdout: '', stderr: '' }));
+    const waitForPort = vi.fn(async () => undefined);
+    const { startWslGateway } = await import('@electron/gateway/wsl-restart');
+
+    await startWslGateway({
+      distro: 'Ubuntu',
+      linuxUser: 'daniel',
+      host: '127.0.0.1',
+      port: 18789,
+    }, {
+      execFile,
+      waitForPort,
+    });
+
+    expect(execFile).toHaveBeenCalledWith(
+      'wsl.exe',
+      [
+        '-d',
+        'Ubuntu',
+        '--user',
+        'daniel',
+        '--exec',
+        '/bin/systemctl',
+        '--user',
+        'start',
+        'openclaw-gateway.service',
+      ],
+      expect.objectContaining({
+        windowsHide: true,
+      }),
+    );
+    expect(waitForPort).toHaveBeenCalledWith('127.0.0.1', 18789, 2_000);
+  });
 });
