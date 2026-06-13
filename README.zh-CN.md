@@ -5,6 +5,15 @@
 
 <h1 align="center">ClawX</h1>
 
+## 外部 OpenClaw 网关（Windows + WSL2）
+
+Windows 原生版 ClawX 可以连接到由 WSL2 管理的 OpenClaw 网关。在设置的
+Gateway 区域启用 **外部网关**，填写主机、端口和网关令牌，然后选择
+**保存并重新连接**。
+
+外部模式只管理客户端连接。ClawX 不会启动、修复、重新加载、关闭或终止外部
+OpenClaw 网关。直接读取 Windows 本地 OpenClaw 目录的功能不会重定向到 WSL2。
+
 <p align="center">
   <strong>OpenClaw AI 智能体的桌面客户端</strong>
 </p>

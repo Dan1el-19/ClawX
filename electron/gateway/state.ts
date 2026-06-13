@@ -8,7 +8,12 @@ type GatewayStateHooks = {
 };
 
 export class GatewayStateController {
-  private status: GatewayStatus = { state: 'stopped', port: PORTS.OPENCLAW_GATEWAY };
+  private status: GatewayStatus = {
+    state: 'stopped',
+    external: false,
+    host: '127.0.0.1',
+    port: PORTS.OPENCLAW_GATEWAY,
+  };
 
   constructor(private readonly hooks: GatewayStateHooks) {}
 

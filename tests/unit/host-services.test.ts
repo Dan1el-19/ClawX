@@ -268,6 +268,10 @@ vi.mock('@electron/utils/openclaw-sdk', () => ({
 }));
 
 const baseSettings = {
+  gatewayExternal: false,
+  gatewayHost: '127.0.0.1',
+  gatewayPort: 18789,
+  gatewayRemoteToken: '',
   proxyEnabled: false,
   proxyServer: '',
   proxyHttpServer: '',
@@ -355,6 +359,26 @@ describe('host services', () => {
     expect(syncLaunchAtStartupSettingFromStoreMock).toHaveBeenCalledTimes(2);
     expect(syncProxyConfigToOpenClawMock).toHaveBeenCalledTimes(1);
     expect(gatewayManager.restart).not.toHaveBeenCalled();
+  });
+
+  it('reconnects once after an external gateway target patch', async () => {
+    const gatewayManager = {
+      getStatus: vi.fn(() => ({ state: 'running', port: 18789 })),
+      restart: vi.fn(),
+    };
+    const { createSettingsApi } = await import('@electron/services/settings-api');
+    const settingsApi = createSettingsApi(gatewayManager as never);
+
+    await expect(settingsApi.setMany({
+      patch: {
+        gatewayExternal: true,
+        gatewayHost: '127.0.0.1',
+        gatewayPort: 18789,
+        gatewayRemoteToken: 'wsl-token',
+      },
+    })).resolves.toEqual({ success: true });
+
+    expect(gatewayManager.restart).toHaveBeenCalledTimes(1);
   });
 
   it('routes gateway rpc through backpressure', async () => {

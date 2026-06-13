@@ -53,6 +53,11 @@ export function Settings() {
     setLaunchAtStartup,
     gatewayAutoStart,
     setGatewayAutoStart,
+    gatewayExternal,
+    gatewayHost,
+    gatewayPort,
+    gatewayRemoteToken,
+    saveGatewayTarget,
     proxyEnabled,
     proxyServer,
     proxyHttpServer,
@@ -85,6 +90,11 @@ export function Settings() {
   const [proxyBypassRulesDraft, setProxyBypassRulesDraft] = useState('');
   const [proxyEnabledDraft, setProxyEnabledDraft] = useState(false);
   const [savingProxy, setSavingProxy] = useState(false);
+  const [gatewayExternalDraft, setGatewayExternalDraft] = useState(false);
+  const [gatewayHostDraft, setGatewayHostDraft] = useState('127.0.0.1');
+  const [gatewayPortDraft, setGatewayPortDraft] = useState('18789');
+  const [gatewayRemoteTokenDraft, setGatewayRemoteTokenDraft] = useState('');
+  const [savingGatewayTarget, setSavingGatewayTarget] = useState(false);
   const [showTelemetryViewer, setShowTelemetryViewer] = useState(false);
   const [telemetryEntries, setTelemetryEntries] = useState<UiTelemetryEntry[]>([]);
 
@@ -250,6 +260,22 @@ export function Settings() {
   }, [devModeUnlocked]);
 
   useEffect(() => {
+    setGatewayExternalDraft(gatewayExternal);
+  }, [gatewayExternal]);
+
+  useEffect(() => {
+    setGatewayHostDraft(gatewayHost);
+  }, [gatewayHost]);
+
+  useEffect(() => {
+    setGatewayPortDraft(String(gatewayPort));
+  }, [gatewayPort]);
+
+  useEffect(() => {
+    setGatewayRemoteTokenDraft(gatewayRemoteToken);
+  }, [gatewayRemoteToken]);
+
+  useEffect(() => {
     setProxyEnabledDraft(proxyEnabled);
   }, [proxyEnabled]);
 
@@ -296,6 +322,46 @@ export function Settings() {
     proxyServer,
     proxyServerDraft,
   ]);
+
+  const gatewayTargetDirty = useMemo(() => {
+    return gatewayExternalDraft !== gatewayExternal
+      || gatewayHostDraft.trim() !== gatewayHost
+      || gatewayPortDraft.trim() !== String(gatewayPort)
+      || gatewayRemoteTokenDraft.trim() !== gatewayRemoteToken;
+  }, [
+    gatewayExternal,
+    gatewayExternalDraft,
+    gatewayHost,
+    gatewayHostDraft,
+    gatewayPort,
+    gatewayPortDraft,
+    gatewayRemoteToken,
+    gatewayRemoteTokenDraft,
+  ]);
+
+  const handleSaveGatewayTarget = async () => {
+    const host = gatewayHostDraft.trim();
+    const port = Number(gatewayPortDraft);
+    if (!host || !Number.isInteger(port) || port < 1 || port > 65535) {
+      toast.error(t('gateway.externalInvalid'));
+      return;
+    }
+
+    setSavingGatewayTarget(true);
+    try {
+      await saveGatewayTarget({
+        external: gatewayExternalDraft,
+        host,
+        port,
+        remoteToken: gatewayRemoteTokenDraft.trim(),
+      });
+      toast.success(t('gateway.externalSaved'));
+    } catch (error) {
+      toast.error(`${t('gateway.externalSaveFailed')}: ${String(error)}`);
+    } finally {
+      setSavingGatewayTarget(false);
+    }
+  };
 
   const handleSaveProxySettings = async () => {
     setSavingProxy(true);
@@ -514,7 +580,7 @@ export function Settings() {
                 <div>
                   <Label className="text-sm font-medium text-foreground">{t('gateway.status')}</Label>
                   <p className="text-meta text-muted-foreground mt-1">
-                    {t('gateway.port')}: {gatewayStatus.port}
+                    {gatewayStatus.host || '127.0.0.1'}:{gatewayStatus.port}
                   </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
@@ -562,6 +628,74 @@ export function Settings() {
                   </pre>
                 </div>
               )}
+
+              <div className="space-y-4 rounded-2xl border border-black/5 bg-black/[0.02] p-4 dark:border-white/5 dark:bg-white/[0.02]">
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <Label className="text-sm font-medium text-foreground">{t('gateway.external')}</Label>
+                    <p className="text-meta text-muted-foreground mt-1">
+                      {t('gateway.externalDesc')}
+                    </p>
+                  </div>
+                  <Switch
+                    checked={gatewayExternalDraft}
+                    onCheckedChange={setGatewayExternalDraft}
+                    data-testid="settings-external-gateway-toggle"
+                  />
+                </div>
+
+                {gatewayExternalDraft && (
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label htmlFor="gateway-host">{t('gateway.host')}</Label>
+                      <Input
+                        id="gateway-host"
+                        value={gatewayHostDraft}
+                        onChange={(event) => setGatewayHostDraft(event.target.value)}
+                        placeholder="127.0.0.1"
+                        className="font-mono"
+                        data-testid="settings-external-gateway-host"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="gateway-port">{t('gateway.port')}</Label>
+                      <Input
+                        id="gateway-port"
+                        inputMode="numeric"
+                        value={gatewayPortDraft}
+                        onChange={(event) => setGatewayPortDraft(event.target.value)}
+                        placeholder="18789"
+                        className="font-mono"
+                        data-testid="settings-external-gateway-port"
+                      />
+                    </div>
+                    <div className="space-y-2 sm:col-span-2">
+                      <Label htmlFor="gateway-remote-token">{t('gateway.remoteToken')}</Label>
+                      <Input
+                        id="gateway-remote-token"
+                        type="password"
+                        value={gatewayRemoteTokenDraft}
+                        onChange={(event) => setGatewayRemoteTokenDraft(event.target.value)}
+                        placeholder={t('gateway.remoteTokenPlaceholder')}
+                        className="font-mono"
+                        data-testid="settings-external-gateway-token"
+                      />
+                      <p className="text-meta text-muted-foreground">{t('gateway.remoteTokenDesc')}</p>
+                    </div>
+                  </div>
+                )}
+
+                <Button
+                  variant="outline"
+                  onClick={handleSaveGatewayTarget}
+                  disabled={savingGatewayTarget || !gatewayTargetDirty}
+                  data-testid="settings-external-gateway-save"
+                  className="rounded-xl bg-transparent"
+                >
+                  <RefreshCw className={`mr-2 h-4 w-4${savingGatewayTarget ? ' animate-spin' : ''}`} />
+                  {savingGatewayTarget ? t('common:status.saving') : t('gateway.saveReconnect')}
+                </Button>
+              </div>
 
               <div className="flex items-center justify-between">
                 <div>

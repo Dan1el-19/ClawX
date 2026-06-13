@@ -24,4 +24,16 @@ describe('buildOpenClawControlUiUrl', () => {
       'http://127.0.0.1:18789/dreaming',
     );
   });
+
+  it('uses an external gateway host', () => {
+    expect(buildOpenClawControlUiUrl(18789, 'wsl-token', {
+      host: '172.24.80.1',
+    })).toBe('http://172.24.80.1:18789/#token=wsl-token');
+  });
+
+  it('brackets an IPv6 gateway host', () => {
+    expect(buildOpenClawControlUiUrl(18789, 'wsl-token', {
+      host: '::1',
+    })).toBe('http://[::1]:18789/#token=wsl-token');
+  });
 });

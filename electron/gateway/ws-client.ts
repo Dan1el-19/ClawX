@@ -12,6 +12,7 @@ import {
   redactGatewayFrameForTrace,
   summarizeGatewayFrameForTrace,
 } from './ws-trace';
+import { buildGatewayWebSocketUrl } from './target';
 
 export const GATEWAY_CHALLENGE_TIMEOUT_MS = 10_000;
 export const GATEWAY_CONNECT_HANDSHAKE_TIMEOUT_MS = 20_000;
@@ -19,9 +20,10 @@ export const GATEWAY_CONNECT_HANDSHAKE_TIMEOUT_MS = 20_000;
 export async function probeGatewayReady(
   port: number,
   timeoutMs = 1500,
+  host = 'localhost',
 ): Promise<boolean> {
   return await new Promise<boolean>((resolve) => {
-    const testWs = new WebSocket(`ws://localhost:${port}/ws`);
+    const testWs = new WebSocket(buildGatewayWebSocketUrl({ host, port }));
     let settled = false;
 
     const resolveOnce = (value: boolean) => {
@@ -72,6 +74,7 @@ export async function probeGatewayReady(
 
 export async function waitForGatewayReady(options: {
   port: number;
+  host?: string;
   getProcessExitCode: () => number | null;
   retries?: number;
   intervalMs?: number;
@@ -87,7 +90,7 @@ export async function waitForGatewayReady(options: {
     }
 
     try {
-      const ready = await probeGatewayReady(options.port, 1500);
+      const ready = await probeGatewayReady(options.port, 1500, options.host);
       if (ready) {
         logger.debug(`Gateway ready after ${i + 1} attempt(s)`);
         return;
@@ -174,6 +177,7 @@ export function buildGatewayConnectFrame(options: {
 }
 
 export async function connectGatewaySocket(options: {
+  host?: string;
   port: number;
   deviceIdentity: DeviceIdentity | null;
   platform: string;
@@ -185,12 +189,12 @@ export async function connectGatewaySocket(options: {
   challengeTimeoutMs?: number;
   connectTimeoutMs?: number;
 }): Promise<WebSocket> {
-  logger.debug(`Connecting Gateway WebSocket (ws://localhost:${options.port}/ws)`);
+  const wsUrl = buildGatewayWebSocketUrl({ host: options.host ?? 'localhost', port: options.port });
+  logger.debug(`Connecting Gateway WebSocket (${wsUrl})`);
   const challengeTimeoutMs = options.challengeTimeoutMs ?? GATEWAY_CHALLENGE_TIMEOUT_MS;
   const connectTimeoutMs = options.connectTimeoutMs ?? GATEWAY_CONNECT_HANDSHAKE_TIMEOUT_MS;
 
   return await new Promise<WebSocket>((resolve, reject) => {
-    const wsUrl = `ws://localhost:${options.port}/ws`;
     const ws = new WebSocket(wsUrl);
     let handshakeComplete = false;
     let connectId: string | null = null;

@@ -6,6 +6,7 @@ import { scheduleControlUiDeviceAutoApproval } from '../utils/control-ui-device-
 import { buildOpenClawControlUiUrl } from '../utils/openclaw-control-ui';
 import { getSetting } from '../utils/store';
 import { isRecord } from './payload-utils';
+import { normalizeGatewayTarget, selectGatewayToken } from '../gateway/target';
 
 type HealthPayload = {
   probe?: unknown;
@@ -54,10 +55,19 @@ export function createGatewayApi(
     controlUi: async (payload) => {
       const body = isRecord(payload) ? payload as ControlUiPayload : {};
       const status = gatewayManager.getStatus();
-      const token = await getSetting('gatewayToken');
-      const port = status.port || PORTS.OPENCLAW_GATEWAY;
+      const target = normalizeGatewayTarget({
+        external: status.external,
+        host: status.host,
+        port: status.port || PORTS.OPENCLAW_GATEWAY,
+      });
+      const token = selectGatewayToken({
+        target,
+        localToken: await getSetting('gatewayToken'),
+        remoteToken: await getSetting('gatewayRemoteToken'),
+      });
+      const port = target.port;
       const view = body.view === 'dreams' ? 'dreams' : undefined;
-      const url = buildOpenClawControlUiUrl(port, token, { view });
+      const url = buildOpenClawControlUiUrl(port, token, { view, host: target.host });
       scheduleControlUiDeviceAutoApproval(gatewayManager);
       return { success: true, url, token, port };
     },

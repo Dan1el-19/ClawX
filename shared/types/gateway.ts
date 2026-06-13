@@ -19,6 +19,8 @@ export type GatewayRuntimeRecord = { [key: string]: GatewayRuntimeJsonValue | un
  */
 export interface GatewayStatus {
   state: 'stopped' | 'starting' | 'running' | 'error' | 'reconnecting';
+  external?: boolean;
+  host?: string;
   port: number;
   pid?: number;
   uptime?: number;

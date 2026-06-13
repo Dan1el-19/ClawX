@@ -13,6 +13,13 @@ import {
 } from '../../harness/src/rules.mjs';
 
 describe('harness specs', () => {
+  it('parses frontmatter from Windows CRLF files', () => {
+    const spec = parseFrontmatter('---\r\nid: windows-spec\r\ntitle: Windows\r\n---\r\n\r\nBody');
+
+    expect(spec.data.id).toBe('windows-spec');
+    expect(spec.body).toBe('Body');
+  });
+
   it('parses Markdown frontmatter with arrays and nested docs', () => {
     const spec = parseFrontmatter(`---
 id: example

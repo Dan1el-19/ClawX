@@ -9,6 +9,7 @@ export type OpenClawControlUiView = 'dreams';
 
 type OpenClawControlUiUrlOptions = {
   view?: OpenClawControlUiView;
+  host?: string;
 };
 
 const CONTROL_UI_VIEW_PATHS: Record<OpenClawControlUiView, string> = {
@@ -21,7 +22,9 @@ export function buildOpenClawControlUiUrl(
   options: OpenClawControlUiUrlOptions = {},
 ): string {
   const path = options.view ? CONTROL_UI_VIEW_PATHS[options.view] : '/';
-  const url = new URL(path, `http://127.0.0.1:${port}`);
+  const normalizedHost = options.host?.trim().replace(/^\[|\]$/g, '') || '127.0.0.1';
+  const host = normalizedHost.includes(':') ? `[${normalizedHost}]` : normalizedHost;
+  const url = new URL(path, `http://${host}:${port}`);
   const trimmedToken = token.trim();
 
   if (trimmedToken) {

@@ -103,7 +103,10 @@ export type SettingsSnapshot = Partial<{
   launchAtStartup: boolean;
   telemetryEnabled: boolean;
   gatewayAutoStart: boolean;
+  gatewayExternal: boolean;
+  gatewayHost: string;
   gatewayPort: number;
+  gatewayRemoteToken: string;
   proxyEnabled: boolean;
   proxyServer: string;
   proxyHttpServer: string;

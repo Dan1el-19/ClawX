@@ -5,6 +5,16 @@
 
 <h1 align="center">ClawX</h1>
 
+## 外部 OpenClaw ゲートウェイ（Windows + WSL2）
+
+Windows ネイティブ版 ClawX は、WSL2 で管理される OpenClaw ゲートウェイに
+接続できます。Settings の Gateway セクションで **外部ゲートウェイ** を有効にし、
+ホスト、ポート、ゲートウェイトークンを入力して **保存して再接続** を選択します。
+
+外部モードはクライアント接続だけを管理します。ClawX は外部 OpenClaw
+ゲートウェイを起動、修復、再読み込み、停止、終了しません。Windows のローカル
+OpenClaw ディレクトリを直接読む機能は WSL2 にリダイレクトされません。
+
 <p align="center">
   <strong>OpenClaw AIエージェントのためのデスクトップインターフェース</strong>
 </p>

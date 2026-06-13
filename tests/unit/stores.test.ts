@@ -37,6 +37,7 @@ describe('Settings Store', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     hostApiMock.settings.set.mockResolvedValue({ success: true });
+    hostApiMock.settings.setMany.mockResolvedValue({ success: true });
     // Reset store to default state
     useSettingsStore.setState({
       theme: 'system',
@@ -45,7 +46,10 @@ describe('Settings Store', () => {
       sidebarWidth: 280,
       devModeUnlocked: false,
       gatewayAutoStart: true,
+      gatewayExternal: false,
+      gatewayHost: '127.0.0.1',
       gatewayPort: 18789,
+      gatewayRemoteToken: '',
       autoCheckUpdate: true,
       startMinimized: false,
       launchAtStartup: false,
@@ -103,6 +107,30 @@ describe('Settings Store', () => {
 
     expect(useSettingsStore.getState().launchAtStartup).toBe(true);
     expect(hostApiMock.settings.set).toHaveBeenCalledWith('launchAtStartup', true);
+  });
+
+  it('should save an external gateway target atomically', async () => {
+    const { saveGatewayTarget } = useSettingsStore.getState();
+
+    await saveGatewayTarget({
+      external: true,
+      host: '127.0.0.1',
+      port: 18789,
+      remoteToken: 'wsl-token',
+    });
+
+    expect(useSettingsStore.getState()).toMatchObject({
+      gatewayExternal: true,
+      gatewayHost: '127.0.0.1',
+      gatewayPort: 18789,
+      gatewayRemoteToken: 'wsl-token',
+    });
+    expect(hostApiMock.settings.setMany).toHaveBeenCalledWith({
+      gatewayExternal: true,
+      gatewayHost: '127.0.0.1',
+      gatewayPort: 18789,
+      gatewayRemoteToken: 'wsl-token',
+    });
   });
 });
 

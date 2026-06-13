@@ -6,7 +6,6 @@ import { app } from 'electron';
 import path from 'path';
 import { EventEmitter } from 'events';
 import WebSocket from 'ws';
-import { PORTS } from '../utils/config';
 import { JsonRpcNotification, isNotification, isResponse } from './protocol';
 import { logger } from '../utils/logger';
 import { captureTelemetryEvent, trackMetric } from '../utils/telemetry';
@@ -61,6 +60,12 @@ import {
   redactGatewayFrameForTrace,
   summarizeGatewayFrameForTrace,
 } from './ws-trace';
+import { getSetting } from '../utils/store';
+import {
+  normalizeGatewayTarget,
+  selectGatewayToken,
+  type GatewayTarget,
+} from './target';
 import type {
   GatewayChannelStatusEvent,
   GatewayChatMessageEvent,
@@ -70,6 +75,8 @@ import type { ChatRuntimeEvent } from '@shared/chat-runtime-events';
 
 export interface GatewayStatus {
   state: GatewayLifecycleState;
+  external: boolean;
+  host: string;
   port: number;
   pid?: number;
   uptime?: number;
@@ -161,7 +168,13 @@ export class GatewayManager extends EventEmitter {
   private processExitCode: number | null = null; // set by exit event, replaces exitCode/signalCode
   private ownsProcess = false;
   private ws: WebSocket | null = null;
-  private status: GatewayStatus = { state: 'stopped', port: PORTS.OPENCLAW_GATEWAY };
+  private target: GatewayTarget = normalizeGatewayTarget({});
+  private status: GatewayStatus = {
+    state: 'stopped',
+    external: this.target.external,
+    host: this.target.host,
+    port: this.target.port,
+  };
   private readonly stateController: GatewayStateController;
   private reconnectTimer: NodeJS.Timeout | null = null;
   private reconnectAttempts = 0;
@@ -260,6 +273,19 @@ export class GatewayManager extends EventEmitter {
     }
   }
 
+  private async refreshGatewayTarget(): Promise<void> {
+    this.target = normalizeGatewayTarget({
+      external: await getSetting('gatewayExternal'),
+      host: await getSetting('gatewayHost'),
+      port: await getSetting('gatewayPort'),
+    });
+    this.setStatus({
+      external: this.target.external,
+      host: this.target.host,
+      port: this.target.port,
+    });
+  }
+
   private sanitizeSpawnArgs(args: string[]): string[] {
     const sanitized = [...args];
     const tokenIdx = sanitized.indexOf('--token');
@@ -320,7 +346,10 @@ export class GatewayManager extends EventEmitter {
 
     this.startLock = true;
     const startEpoch = this.lifecycleController.bump('start');
-    logger.info(`Gateway start requested (port=${this.status.port})`);
+    await this.refreshGatewayTarget();
+    logger.info(
+      `Gateway start requested (external=${this.target.external}, host=${this.target.host}, port=${this.target.port})`,
+    );
     this.lastSpawnSummary = null;
     this.shouldReconnect = true;
     await this.refreshReloadPolicy(true);
@@ -346,15 +375,26 @@ export class GatewayManager extends EventEmitter {
     this.setStatus({ state: 'starting', reconnectAttempts: this.reconnectAttempts, gatewayReady: false });
     this.resetGatewayReadyFallback();
 
-    // Check if Python environment is ready (self-healing) asynchronously.
-    // Fire-and-forget: only needs to run once, not on every retry.
-    warmupManagedPythonReadiness();
+    if (!this.target.external) {
+      // Check if Python environment is ready (self-healing) asynchronously.
+      // Fire-and-forget: only needs to run once, not on every retry.
+      warmupManagedPythonReadiness();
+    }
 
     const t0 = Date.now();
     let tSpawned = 0;
     let tReady = 0;
 
     try {
+      if (this.target.external) {
+        await this.connect(this.target.port);
+        this.lifecycleController.assert(startEpoch, 'start/connect-external');
+        this.ownsProcess = false;
+        this.setStatus({ pid: undefined });
+        this.startHealthCheck();
+        return;
+      }
+
       await runGatewayStartupSequence({
         port: this.status.port,
         shouldWaitForPortFree: process.platform === 'win32',
@@ -477,7 +517,12 @@ export class GatewayManager extends EventEmitter {
 
     // If this manager is attached to an external gateway process, ask it to shut down
     // over protocol before closing the socket.
-    if (!this.ownsProcess && this.ws?.readyState === WebSocket.OPEN && this.externalShutdownSupported !== false) {
+    if (
+      !this.target.external
+      && !this.ownsProcess
+      && this.ws?.readyState === WebSocket.OPEN
+      && this.externalShutdownSupported !== false
+    ) {
       try {
         await this.rpc('shutdown', undefined, 5000);
         this.externalShutdownSupported = true;
@@ -650,6 +695,12 @@ export class GatewayManager extends EventEmitter {
    * Falls back to restart on unsupported platforms or signaling failures.
    */
   async reload(): Promise<void> {
+    if (this.target.external) {
+      logger.info('[gateway-refresh] external Gateway reload requested; reconnecting client');
+      await this.restart();
+      return;
+    }
+
     await this.refreshReloadPolicy();
 
     if (this.reloadPolicy.mode === 'off' || this.reloadPolicy.mode === 'restart') {
@@ -1112,11 +1163,16 @@ export class GatewayManager extends EventEmitter {
    */
   private async connect(port: number, _externalToken?: string): Promise<void> {
     this.ws = await connectGatewaySocket({
+      host: this.target.host,
       port,
       deviceIdentity: this.deviceIdentity,
       platform: process.platform,
       pendingRequests: this.pendingRequests,
-      getToken: async () => await import('../utils/store').then(({ getSetting }) => getSetting('gatewayToken')),
+      getToken: async () => selectGatewayToken({
+        target: this.target,
+        localToken: await getSetting('gatewayToken'),
+        remoteToken: await getSetting('gatewayRemoteToken'),
+      }),
       onHandshakeComplete: (ws) => {
         this.ws = ws;
         ws.on('pong', () => {
@@ -1150,7 +1206,7 @@ export class GatewayManager extends EventEmitter {
           // Exception: code=1012 means the Gateway is performing an in-process
           // restart (e.g. config reload).  The UtilityProcess stays alive, so
           // `onExit` will never fire — we MUST reconnect from the WS close path.
-          if (process.platform !== 'win32' || closeCode === 1012) {
+          if (this.target.external || process.platform !== 'win32' || closeCode === 1012) {
             this.scheduleReconnect();
           }
         }

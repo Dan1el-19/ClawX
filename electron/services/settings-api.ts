@@ -34,6 +34,13 @@ const PROXY_SETTING_KEYS = new Set<keyof AppSettings>([
   'proxyBypassRules',
 ]);
 
+const GATEWAY_TARGET_SETTING_KEYS = new Set<keyof AppSettings>([
+  'gatewayExternal',
+  'gatewayHost',
+  'gatewayPort',
+  'gatewayRemoteToken',
+]);
+
 async function validateSettingKey(key: unknown): Promise<boolean> {
   if (typeof key !== 'string' || key.length === 0) return false;
   const settings = await getAllSettings();
@@ -70,6 +77,10 @@ function patchTouchesLaunchAtStartup(patch: Partial<AppSettings>): boolean {
   return Object.prototype.hasOwnProperty.call(patch, 'launchAtStartup');
 }
 
+function patchTouchesGatewayTarget(patch: Partial<AppSettings>): boolean {
+  return Object.keys(patch).some((key) => GATEWAY_TARGET_SETTING_KEYS.has(key as keyof AppSettings));
+}
+
 function patchTouchesLanguage(patch: Partial<AppSettings>): boolean {
   return Object.prototype.hasOwnProperty.call(patch, 'language');
 }
@@ -89,6 +100,9 @@ async function runSettingsSideEffects(
 ): Promise<void> {
   if (patchTouchesProxy(patch)) {
     await handleProxySettingsChange(gatewayManager);
+  }
+  if (patchTouchesGatewayTarget(patch) && !patchTouchesProxy(patch)) {
+    await gatewayManager.restart();
   }
   if (patchTouchesLaunchAtStartup(patch)) {
     await syncLaunchAtStartupSettingFromStore();

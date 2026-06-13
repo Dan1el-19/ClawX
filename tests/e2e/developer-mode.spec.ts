@@ -8,6 +8,14 @@ test.describe('ClawX developer-mode gated UI', () => {
     await expect(page.getByTestId('settings-page')).toBeVisible();
     await expect(page.getByTestId('settings-developer-section')).toHaveCount(0);
     await expect(page.getByTestId('settings-dev-mode-switch')).toHaveAttribute('data-state', 'unchecked');
+    await expect(page.getByTestId('settings-external-gateway-toggle')).toHaveAttribute('data-state', 'unchecked');
+    await expect(page.getByTestId('settings-external-gateway-host')).toHaveCount(0);
+    await page.getByTestId('settings-external-gateway-toggle').click();
+    await expect(page.getByTestId('settings-external-gateway-host')).toBeVisible();
+    await expect(page.getByTestId('settings-external-gateway-port')).toHaveValue('18789');
+    await expect(page.getByTestId('settings-external-gateway-token')).toBeVisible();
+    await expect(page.getByTestId('settings-external-gateway-save')).toBeEnabled();
+    await page.getByTestId('settings-external-gateway-toggle').click();
     await expect(page.getByTestId('sidebar-open-dev-console')).toHaveCount(0);
     await expect(page.getByTestId('sidebar-nav-dreams')).toHaveCount(0);
 

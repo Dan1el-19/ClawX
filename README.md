@@ -5,6 +5,16 @@
 
 <h1 align="center">ClawX</h1>
 
+## External OpenClaw Gateway (Windows + WSL2)
+
+A native Windows ClawX build can connect to an OpenClaw Gateway managed in
+WSL2. In Settings > Gateway, enable **External Gateway**, enter the host, port,
+and Gateway token, then choose **Save and Reconnect**.
+
+External mode only manages the client connection. ClawX does not start, repair,
+reload, shut down, or terminate the external OpenClaw Gateway. Features that
+directly read the local Windows OpenClaw directory are not redirected into WSL2.
+
 <p align="center">
   <strong>The Desktop Interface for OpenClaw AI Agents</strong>
 </p>

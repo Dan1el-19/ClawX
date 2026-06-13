@@ -97,6 +97,7 @@ describe('connectGatewaySocket', () => {
     const onHandshakeComplete = vi.fn();
 
     const connectionPromise = connectGatewaySocket({
+      host: 'wsl-openclaw.local',
       port: 18789,
       deviceIdentity: null,
       platform: 'win32',
@@ -119,6 +120,7 @@ describe('connectGatewaySocket', () => {
     });
 
     const socket = getLatestSocket();
+    expect(socket.url).toBe('ws://wsl-openclaw.local:18789/ws');
     socket.emitOpen();
     socket.emitJsonMessage({
       type: 'event',
@@ -254,8 +256,9 @@ describe('probeGatewayReady', () => {
   });
 
   it('resolves true when connect.challenge message is received', async () => {
-    const probePromise = probeGatewayReady(18789, 5000);
+    const probePromise = probeGatewayReady(18789, 5000, '172.24.80.1');
     const socket = getLatestSocket();
+    expect(socket.url).toBe('ws://172.24.80.1:18789/ws');
 
     socket.emitOpen();
     socket.emitJsonMessage({

@@ -21,7 +21,10 @@ interface SettingsState {
 
   // Gateway
   gatewayAutoStart: boolean;
+  gatewayExternal: boolean;
+  gatewayHost: string;
   gatewayPort: number;
+  gatewayRemoteToken: string;
   proxyEnabled: boolean;
   proxyServer: string;
   proxyHttpServer: string;
@@ -50,6 +53,12 @@ interface SettingsState {
   setTelemetryEnabled: (value: boolean) => void;
   setGatewayAutoStart: (value: boolean) => void;
   setGatewayPort: (port: number) => void;
+  saveGatewayTarget: (target: {
+    external: boolean;
+    host: string;
+    port: number;
+    remoteToken: string;
+  }) => Promise<void>;
   setProxyEnabled: (value: boolean) => void;
   setProxyServer: (value: string) => void;
   setProxyHttpServer: (value: string) => void;
@@ -72,7 +81,10 @@ const defaultSettings = {
   launchAtStartup: false,
   telemetryEnabled: true,
   gatewayAutoStart: true,
+  gatewayExternal: false,
+  gatewayHost: '127.0.0.1',
   gatewayPort: 18789,
+  gatewayRemoteToken: '',
   proxyEnabled: false,
   proxyServer: '',
   proxyHttpServer: '',
@@ -143,6 +155,16 @@ export const useSettingsStore = create<SettingsState>()(
       setGatewayPort: (gatewayPort) => {
         set({ gatewayPort });
         void hostApi.settings.set('gatewayPort', gatewayPort).catch(() => { });
+      },
+      saveGatewayTarget: async ({ external, host, port, remoteToken }) => {
+        const patch = {
+          gatewayExternal: external,
+          gatewayHost: host,
+          gatewayPort: port,
+          gatewayRemoteToken: remoteToken,
+        };
+        await hostApi.settings.setMany(patch);
+        set(patch);
       },
       setProxyEnabled: (proxyEnabled) => set({ proxyEnabled }),
       setProxyServer: (proxyServer) => set({ proxyServer }),
