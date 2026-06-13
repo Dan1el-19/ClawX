@@ -66,7 +66,7 @@ import {
   selectGatewayToken,
   type GatewayTarget,
 } from './target';
-import { restartWslGateway, startWslGateway } from './wsl-restart';
+import { ensureWslKeepalive, restartWslGateway, startWslGateway } from './wsl-restart';
 import type {
   GatewayChannelStatusEvent,
   GatewayChatMessageEvent,
@@ -388,12 +388,23 @@ export class GatewayManager extends EventEmitter {
 
     try {
       if (this.target.external) {
+        const wslDistro = process.platform === 'win32'
+          ? (await getSetting('gatewayWslDistro')).trim()
+          : '';
+        const wslUser = wslDistro
+          ? (await getSetting('gatewayWslUser')).trim()
+          : '';
+        if (wslDistro) {
+          ensureWslKeepalive({
+            distro: wslDistro,
+            linuxUser: wslUser,
+            host: this.target.host,
+            port: this.target.port,
+          });
+        }
         try {
           await this.connect(this.target.port);
         } catch (initialError) {
-          const wslDistro = process.platform === 'win32'
-            ? (await getSetting('gatewayWslDistro')).trim()
-            : '';
           if (!wslDistro) {
             throw initialError;
           }
@@ -403,7 +414,7 @@ export class GatewayManager extends EventEmitter {
           );
           await startWslGateway({
             distro: wslDistro,
-            linuxUser: (await getSetting('gatewayWslUser')).trim(),
+            linuxUser: wslUser,
             host: this.target.host,
             port: this.target.port,
           });

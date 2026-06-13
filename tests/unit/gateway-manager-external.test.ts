@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => {
     connectGatewaySocket: vi.fn(),
     startWslGateway: vi.fn(async () => undefined),
     restartWslGateway: vi.fn(async () => undefined),
+    ensureWslKeepalive: vi.fn(),
     runGatewayStartupSequence: vi.fn(),
     warmupManagedPythonReadiness: vi.fn(),
   };
@@ -60,6 +61,7 @@ vi.mock('@electron/gateway/ws-client', async (importOriginal) => ({
 vi.mock('@electron/gateway/wsl-restart', () => ({
   startWslGateway: mocks.startWslGateway,
   restartWslGateway: mocks.restartWslGateway,
+  ensureWslKeepalive: mocks.ensureWslKeepalive,
 }));
 
 describe('GatewayManager external gateway lifecycle', () => {
@@ -211,5 +213,24 @@ describe('GatewayManager external gateway lifecycle', () => {
     });
     expect(mocks.connectGatewaySocket).toHaveBeenCalledTimes(2);
     expect(manager.getStatus().state).toBe('running');
+  });
+
+  it('starts a hidden WSL2 keepalive before connecting to a configured gateway', async () => {
+    Object.defineProperty(process, 'platform', { value: 'win32' });
+    mocks.settings.gatewayWslDistro = 'Ubuntu';
+    mocks.settings.gatewayWslUser = 'daniel';
+    const { GatewayManager } = await import('@electron/gateway/manager');
+    const manager = new GatewayManager();
+
+    await manager.start();
+
+    expect(mocks.ensureWslKeepalive).toHaveBeenCalledWith({
+      distro: 'Ubuntu',
+      linuxUser: 'daniel',
+      host: '127.0.0.1',
+      port: 18789,
+    });
+    expect(mocks.ensureWslKeepalive.mock.invocationCallOrder[0])
+      .toBeLessThan(mocks.connectGatewaySocket.mock.invocationCallOrder[0]);
   });
 });

@@ -2,7 +2,7 @@
 
 import 'zx/globals';
 import { readFileSync, existsSync, mkdirSync, rmSync, cpSync, writeFileSync } from 'node:fs';
-import { join, dirname, basename } from 'node:path';
+import { join, dirname, basename, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -83,21 +83,24 @@ async function extractArchive(archiveFileName, cwd) {
 async function fetchSparseRepo(repo, ref, paths, checkoutDir) {
   const remote = `https://github.com/${repo}.git`;
   mkdirSync(checkoutDir, { recursive: true });
-  const gitCheckoutDir = toGitPath(checkoutDir);
+  const gitDir = toGitPath(relative(ROOT, join(checkoutDir, '.git')));
   const archiveFileName = '.subset.tar';
   const archivePath = join(checkoutDir, archiveFileName);
+  const gitArchivePath = toGitPath(relative(ROOT, archivePath));
   const archivePaths = [...new Set(paths.map(normalizeRepoPath))];
 
-  await $`git init ${gitCheckoutDir}`;
-  await $`git -C ${gitCheckoutDir} remote add origin ${remote}`;
-  await $`git -C ${gitCheckoutDir} fetch --depth 1 origin ${ref}`;
+  // A bare repository avoids Git resolving this generated directory to the
+  // parent ClawX worktree on Windows. The bundler only needs fetch + archive.
+  await $`git init --bare ${gitDir}`;
+  await $`git --git-dir=${gitDir} remote add origin ${remote}`;
+  await $`git --git-dir=${gitDir} fetch --depth 1 origin ${ref}`;
   // Do not checkout working tree on Windows: upstream repos may contain
   // Windows-invalid paths. Export only requested directories via git archive.
-  await $`git -C ${gitCheckoutDir} archive --format=tar --output ${archiveFileName} FETCH_HEAD ${archivePaths}`;
+  await $`git --git-dir=${gitDir} archive --format=tar --output ${gitArchivePath} FETCH_HEAD ${archivePaths}`;
   await extractArchive(archiveFileName, checkoutDir);
   rmSync(archivePath, { force: true });
 
-  const commit = (await $`git -C ${gitCheckoutDir} rev-parse FETCH_HEAD`).stdout.trim();
+  const commit = (await $`git --git-dir=${gitDir} rev-parse FETCH_HEAD`).stdout.trim();
   return commit;
 }
 

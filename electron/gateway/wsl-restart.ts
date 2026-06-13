@@ -1,4 +1,9 @@
-import { execFile as execFileCallback } from 'node:child_process';
+import {
+  execFile as execFileCallback,
+  spawn as spawnChild,
+  type ChildProcess,
+  type SpawnOptions,
+} from 'node:child_process';
 import net from 'node:net';
 import { promisify } from 'node:util';
 
@@ -19,6 +24,64 @@ type WslGatewayDependencies = {
   ) => Promise<unknown>;
   waitForPort: (host: string, port: number, stableForMs: number) => Promise<void>;
 };
+
+type WslKeepaliveChild = Pick<ChildProcess, 'exitCode' | 'killed' | 'once' | 'unref'>;
+
+type WslKeepaliveDependencies = {
+  spawn: (file: string, args: string[], options: SpawnOptions) => WslKeepaliveChild;
+};
+
+let keepaliveProcess: WslKeepaliveChild | null = null;
+let keepaliveKey = '';
+let keepaliveRestartTimer: NodeJS.Timeout | null = null;
+
+export function ensureWslKeepalive(
+  options: WslGatewayOptions,
+  dependencies: WslKeepaliveDependencies = {
+    spawn: (file, args, spawnOptions) => spawnChild(file, args, spawnOptions),
+  },
+): void {
+  const distro = options.distro.trim();
+  const linuxUser = options.linuxUser.trim();
+  if (!distro) return;
+
+  const key = `${distro}\0${linuxUser}`;
+  if (
+    keepaliveKey === key
+    && keepaliveProcess
+    && keepaliveProcess.exitCode === null
+    && !keepaliveProcess.killed
+  ) {
+    return;
+  }
+
+  const args = ['-d', distro];
+  if (linuxUser) {
+    args.push('--user', linuxUser);
+  }
+  args.push('--exec', '/bin/sleep', 'infinity');
+
+  const child = dependencies.spawn('wsl.exe', args, {
+    detached: true,
+    stdio: 'ignore',
+    windowsHide: true,
+  });
+  keepaliveProcess = child;
+  keepaliveKey = key;
+  child.unref();
+
+  const restart = () => {
+    if (keepaliveProcess !== child || keepaliveRestartTimer) return;
+    keepaliveProcess = null;
+    keepaliveRestartTimer = setTimeout(() => {
+      keepaliveRestartTimer = null;
+      ensureWslKeepalive(options, dependencies);
+    }, 1_000);
+    keepaliveRestartTimer.unref?.();
+  };
+  child.once('exit', restart);
+  child.once('error', restart);
+}
 
 async function runWslGatewayServiceAction(
   action: 'start' | 'restart',

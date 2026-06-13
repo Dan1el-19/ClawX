@@ -79,35 +79,14 @@ Test-NetConnection 127.0.0.1 -Port 18789
 
 ## Keep WSL2 Running
 
-WSL2 can stop a distribution after its last Linux process exits. A lightweight
-Windows Scheduled Task can keep the distribution available after login without
-opening a console window. Register `wsl.exe` directly so Task Scheduler owns
-and monitors the long-running process:
+WSL2 can stop a distribution after its last Windows-side WSL process exits,
+even when a user systemd service is active. When a WSL2 distribution is
+configured in ClawX, the app starts one detached `wsl.exe /bin/sleep infinity`
+keepalive before connecting. The process has no console window and is
+automatically recreated if it exits while ClawX is running.
 
-```powershell
-$action = New-ScheduledTaskAction `
-  -Execute "$env:SystemRoot\System32\wsl.exe" `
-  -Argument '-d Ubuntu --user daniel --exec /bin/sleep infinity'
-$trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
-$settings = New-ScheduledTaskSettingsSet `
-  -AllowStartIfOnBatteries `
-  -DontStopIfGoingOnBatteries `
-  -ExecutionTimeLimit ([TimeSpan]::Zero) `
-  -MultipleInstances IgnoreNew
-
-Register-ScheduledTask `
-  -TaskName 'OpenClaw WSL2 Host' `
-  -Action $action `
-  -Trigger $trigger `
-  -Settings $settings `
-  -Description 'Keeps WSL2 running for the OpenClaw gateway.' `
-  -Force
-
-Start-ScheduledTask -TaskName 'OpenClaw WSL2 Host'
-```
-
-Adjust the distribution and Linux user in `-Argument` when they differ from
-`Ubuntu` and `daniel`.
+A separate Scheduled Task is not required and can expose a console window when
+it runs in an interactive user session.
 
 ## Connect ClawX
 
