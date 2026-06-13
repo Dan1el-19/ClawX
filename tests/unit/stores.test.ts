@@ -50,6 +50,8 @@ describe('Settings Store', () => {
       gatewayHost: '127.0.0.1',
       gatewayPort: 18789,
       gatewayRemoteToken: '',
+      gatewayWslDistro: '',
+      gatewayWslUser: '',
       autoCheckUpdate: true,
       startMinimized: false,
       launchAtStartup: false,
@@ -117,6 +119,8 @@ describe('Settings Store', () => {
       host: '127.0.0.1',
       port: 18789,
       remoteToken: 'wsl-token',
+      wslDistro: 'Ubuntu',
+      wslUser: 'daniel',
     });
 
     expect(useSettingsStore.getState()).toMatchObject({
@@ -124,12 +128,16 @@ describe('Settings Store', () => {
       gatewayHost: '127.0.0.1',
       gatewayPort: 18789,
       gatewayRemoteToken: 'wsl-token',
+      gatewayWslDistro: 'Ubuntu',
+      gatewayWslUser: 'daniel',
     });
     expect(hostApiMock.settings.setMany).toHaveBeenCalledWith({
       gatewayExternal: true,
       gatewayHost: '127.0.0.1',
       gatewayPort: 18789,
       gatewayRemoteToken: 'wsl-token',
+      gatewayWslDistro: 'Ubuntu',
+      gatewayWslUser: 'daniel',
     });
   });
 });
@@ -165,5 +173,43 @@ describe('Gateway Store', () => {
 
     expect(result.ok).toBe(true);
     expect(hostApiMock.gateway.rpc).toHaveBeenCalledWith('chat.history', { limit: 10 }, 5000);
+  });
+
+  it('reconciles gateway status after restart completes', async () => {
+    hostApiMock.gateway.restart.mockResolvedValueOnce({ success: true });
+    hostApiMock.gateway.status.mockResolvedValueOnce({
+      state: 'running',
+      port: 18789,
+      gatewayReady: true,
+    });
+
+    await useGatewayStore.getState().restart();
+
+    expect(hostApiMock.gateway.status).toHaveBeenCalledTimes(1);
+    expect(useGatewayStore.getState().status).toMatchObject({
+      state: 'running',
+      gatewayReady: true,
+    });
+  });
+
+  it('reconciles gateway readiness when lifecycle state stays running', async () => {
+    hostApiMock.gateway.status
+      .mockResolvedValueOnce({
+        state: 'running',
+        port: 18789,
+        gatewayReady: false,
+      })
+      .mockResolvedValueOnce({
+        state: 'running',
+        port: 18789,
+        gatewayReady: true,
+      });
+
+    await useGatewayStore.getState().init();
+
+    expect(useGatewayStore.getState().status).toMatchObject({
+      state: 'running',
+      gatewayReady: true,
+    });
   });
 });

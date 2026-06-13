@@ -107,6 +107,8 @@ export type SettingsSnapshot = Partial<{
   gatewayHost: string;
   gatewayPort: number;
   gatewayRemoteToken: string;
+  gatewayWslDistro: string;
+  gatewayWslUser: string;
   proxyEnabled: boolean;
   proxyServer: string;
   proxyHttpServer: string;

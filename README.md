@@ -5,15 +5,26 @@
 
 <h1 align="center">ClawX</h1>
 
+> [!IMPORTANT]
+> This is an **unofficial community fork** of
+> [ValueCell-ai/ClawX](https://github.com/ValueCell-ai/ClawX). It adds support
+> for connecting the native Windows application to an OpenClaw Gateway running
+> in WSL2. It is not endorsed by or affiliated with ValueCell.
+
 ## External OpenClaw Gateway (Windows + WSL2)
 
 A native Windows ClawX build can connect to an OpenClaw Gateway managed in
 WSL2. In Settings > Gateway, enable **External Gateway**, enter the host, port,
 and Gateway token, then choose **Save and Reconnect**.
 
-External mode only manages the client connection. ClawX does not start, repair,
-reload, shut down, or terminate the external OpenClaw Gateway. Features that
-directly read the local Windows OpenClaw directory are not redirected into WSL2.
+External mode normally manages only the client connection. On Windows, setting
+a WSL2 distribution enables **Restart Gateway** to restart the
+`openclaw-gateway.service` user service inside WSL2. ClawX does not repair,
+reload, shut down, or terminate other external Gateways. Features that directly
+read the local Windows OpenClaw directory are not redirected into WSL2.
+
+See [Windows + WSL2 setup](docs/WSL2-GATEWAY.md) for installation, service, and
+security instructions.
 
 <p align="center">
   <strong>The Desktop Interface for OpenClaw AI Agents</strong>

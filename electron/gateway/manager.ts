@@ -66,6 +66,7 @@ import {
   selectGatewayToken,
   type GatewayTarget,
 } from './target';
+import { restartWslGateway } from './wsl-restart';
 import type {
   GatewayChannelStatusEvent,
   GatewayChatMessageEvent,
@@ -630,6 +631,18 @@ export class GatewayManager extends EventEmitter {
     this.restartInFlight = (async () => {
       await this.stop();
       try {
+        const wslDistro = this.target.external && process.platform === 'win32'
+          ? (await getSetting('gatewayWslDistro')).trim()
+          : '';
+        if (wslDistro) {
+          logger.info(`[gateway-refresh] restarting WSL2 Gateway service (distro=${wslDistro})`);
+          await restartWslGateway({
+            distro: wslDistro,
+            linuxUser: (await getSetting('gatewayWslUser')).trim(),
+            host: this.target.host,
+            port: this.target.port,
+          });
+        }
         await this.start();
       } catch (err) {
         // stop() set shouldReconnect=false. Restore it so the gateway

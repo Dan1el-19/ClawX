@@ -38,6 +38,8 @@ export interface AppSettings {
   gatewayPort: number;
   gatewayToken: string;
   gatewayRemoteToken: string;
+  gatewayWslDistro: string;
+  gatewayWslUser: string;
   proxyEnabled: boolean;
   proxyServer: string;
   proxyHttpServer: string;
@@ -92,6 +94,8 @@ function createDefaultSettings(): AppSettings {
     gatewayPort: 18789,
     gatewayToken: generateToken(),
     gatewayRemoteToken: '',
+    gatewayWslDistro: '',
+    gatewayWslUser: '',
     proxyEnabled: false,
     proxyServer: '',
     proxyHttpServer: '',

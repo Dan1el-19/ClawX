@@ -14,6 +14,9 @@ test.describe('ClawX developer-mode gated UI', () => {
     await expect(page.getByTestId('settings-external-gateway-host')).toBeVisible();
     await expect(page.getByTestId('settings-external-gateway-port')).toHaveValue('18789');
     await expect(page.getByTestId('settings-external-gateway-token')).toBeVisible();
+    const platform = await page.evaluate(() => window.electron.platform);
+    await expect(page.getByTestId('settings-external-gateway-wsl-distro')).toHaveCount(platform === 'win32' ? 1 : 0);
+    await expect(page.getByTestId('settings-external-gateway-wsl-user')).toHaveCount(platform === 'win32' ? 1 : 0);
     await expect(page.getByTestId('settings-external-gateway-save')).toBeEnabled();
     await page.getByTestId('settings-external-gateway-toggle').click();
     await expect(page.getByTestId('sidebar-open-dev-console')).toHaveCount(0);

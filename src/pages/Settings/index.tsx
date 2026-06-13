@@ -57,6 +57,8 @@ export function Settings() {
     gatewayHost,
     gatewayPort,
     gatewayRemoteToken,
+    gatewayWslDistro,
+    gatewayWslUser,
     saveGatewayTarget,
     proxyEnabled,
     proxyServer,
@@ -94,6 +96,8 @@ export function Settings() {
   const [gatewayHostDraft, setGatewayHostDraft] = useState('127.0.0.1');
   const [gatewayPortDraft, setGatewayPortDraft] = useState('18789');
   const [gatewayRemoteTokenDraft, setGatewayRemoteTokenDraft] = useState('');
+  const [gatewayWslDistroDraft, setGatewayWslDistroDraft] = useState('');
+  const [gatewayWslUserDraft, setGatewayWslUserDraft] = useState('');
   const [savingGatewayTarget, setSavingGatewayTarget] = useState(false);
   const [showTelemetryViewer, setShowTelemetryViewer] = useState(false);
   const [telemetryEntries, setTelemetryEntries] = useState<UiTelemetryEntry[]>([]);
@@ -276,6 +280,14 @@ export function Settings() {
   }, [gatewayRemoteToken]);
 
   useEffect(() => {
+    setGatewayWslDistroDraft(gatewayWslDistro);
+  }, [gatewayWslDistro]);
+
+  useEffect(() => {
+    setGatewayWslUserDraft(gatewayWslUser);
+  }, [gatewayWslUser]);
+
+  useEffect(() => {
     setProxyEnabledDraft(proxyEnabled);
   }, [proxyEnabled]);
 
@@ -327,7 +339,9 @@ export function Settings() {
     return gatewayExternalDraft !== gatewayExternal
       || gatewayHostDraft.trim() !== gatewayHost
       || gatewayPortDraft.trim() !== String(gatewayPort)
-      || gatewayRemoteTokenDraft.trim() !== gatewayRemoteToken;
+      || gatewayRemoteTokenDraft.trim() !== gatewayRemoteToken
+      || gatewayWslDistroDraft.trim() !== gatewayWslDistro
+      || gatewayWslUserDraft.trim() !== gatewayWslUser;
   }, [
     gatewayExternal,
     gatewayExternalDraft,
@@ -337,6 +351,10 @@ export function Settings() {
     gatewayPortDraft,
     gatewayRemoteToken,
     gatewayRemoteTokenDraft,
+    gatewayWslDistro,
+    gatewayWslDistroDraft,
+    gatewayWslUser,
+    gatewayWslUserDraft,
   ]);
 
   const handleSaveGatewayTarget = async () => {
@@ -354,6 +372,8 @@ export function Settings() {
         host,
         port,
         remoteToken: gatewayRemoteTokenDraft.trim(),
+        wslDistro: gatewayWslDistroDraft.trim(),
+        wslUser: gatewayWslUserDraft.trim(),
       });
       toast.success(t('gateway.externalSaved'));
     } catch (error) {
@@ -682,6 +702,35 @@ export function Settings() {
                       />
                       <p className="text-meta text-muted-foreground">{t('gateway.remoteTokenDesc')}</p>
                     </div>
+                    {isWindows && (
+                      <>
+                        <div className="space-y-2">
+                          <Label htmlFor="gateway-wsl-distro">{t('gateway.wslDistro')}</Label>
+                          <Input
+                            id="gateway-wsl-distro"
+                            value={gatewayWslDistroDraft}
+                            onChange={(event) => setGatewayWslDistroDraft(event.target.value)}
+                            placeholder="Ubuntu"
+                            className="font-mono"
+                            data-testid="settings-external-gateway-wsl-distro"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="gateway-wsl-user">{t('gateway.wslUser')}</Label>
+                          <Input
+                            id="gateway-wsl-user"
+                            value={gatewayWslUserDraft}
+                            onChange={(event) => setGatewayWslUserDraft(event.target.value)}
+                            placeholder={t('gateway.wslUserPlaceholder')}
+                            className="font-mono"
+                            data-testid="settings-external-gateway-wsl-user"
+                          />
+                        </div>
+                        <p className="text-meta text-muted-foreground sm:col-span-2">
+                          {t('gateway.wslRestartDesc')}
+                        </p>
+                      </>
+                    )}
                   </div>
                 )}
 

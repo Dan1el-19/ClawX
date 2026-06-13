@@ -173,6 +173,15 @@ function getGatewayErrorMessage(payload: string | { message?: string }): string 
   return payload.message || 'Gateway error';
 }
 
+function gatewayStatusChanged(current: GatewayStatus, latest: GatewayStatus): boolean {
+  return current.state !== latest.state
+    || current.gatewayReady !== latest.gatewayReady
+    || current.connectedAt !== latest.connectedAt
+    || current.pid !== latest.pid
+    || current.port !== latest.port
+    || current.error !== latest.error;
+}
+
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? value as Record<string, unknown>
@@ -392,9 +401,9 @@ export const useGatewayStore = create<GatewayState>((set, get) => ({
             hostApi.gateway.status()
               .then((latest) => {
                 const current = get().status;
-                if (latest.state !== current.state) {
+                if (gatewayStatusChanged(current, latest)) {
                   console.info(
-                    `[gateway-store] reconciled stale state: ${current.state} → ${latest.state}`,
+                    `[gateway-store] reconciled stale status: ${current.state} → ${latest.state}`,
                   );
                   set({ status: latest });
                 }
@@ -410,7 +419,7 @@ export const useGatewayStore = create<GatewayState>((set, get) => ({
         try {
           const refreshed = await hostApi.gateway.status();
           const current = get().status;
-          if (refreshed.state !== current.state) {
+          if (gatewayStatusChanged(current, refreshed)) {
             set({ status: refreshed });
           }
         } catch {
@@ -464,7 +473,9 @@ export const useGatewayStore = create<GatewayState>((set, get) => ({
           status: { ...get().status, state: 'error', error: result.error },
           lastError: result.error || 'Failed to restart Gateway',
         });
+        return;
       }
+      set({ status: await hostApi.gateway.status(), lastError: null });
     } catch (error) {
       set({
         status: { ...get().status, state: 'error', error: String(error) },

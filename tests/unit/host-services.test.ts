@@ -272,6 +272,8 @@ const baseSettings = {
   gatewayHost: '127.0.0.1',
   gatewayPort: 18789,
   gatewayRemoteToken: '',
+  gatewayWslDistro: '',
+  gatewayWslUser: '',
   proxyEnabled: false,
   proxyServer: '',
   proxyHttpServer: '',
@@ -375,6 +377,8 @@ describe('host services', () => {
         gatewayHost: '127.0.0.1',
         gatewayPort: 18789,
         gatewayRemoteToken: 'wsl-token',
+        gatewayWslDistro: 'Ubuntu',
+        gatewayWslUser: 'daniel',
       },
     })).resolves.toEqual({ success: true });
 

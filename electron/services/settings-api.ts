@@ -39,6 +39,8 @@ const GATEWAY_TARGET_SETTING_KEYS = new Set<keyof AppSettings>([
   'gatewayHost',
   'gatewayPort',
   'gatewayRemoteToken',
+  'gatewayWslDistro',
+  'gatewayWslUser',
 ]);
 
 async function validateSettingKey(key: unknown): Promise<boolean> {

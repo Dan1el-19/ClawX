@@ -25,6 +25,8 @@ interface SettingsState {
   gatewayHost: string;
   gatewayPort: number;
   gatewayRemoteToken: string;
+  gatewayWslDistro: string;
+  gatewayWslUser: string;
   proxyEnabled: boolean;
   proxyServer: string;
   proxyHttpServer: string;
@@ -58,6 +60,8 @@ interface SettingsState {
     host: string;
     port: number;
     remoteToken: string;
+    wslDistro: string;
+    wslUser: string;
   }) => Promise<void>;
   setProxyEnabled: (value: boolean) => void;
   setProxyServer: (value: string) => void;
@@ -85,6 +89,8 @@ const defaultSettings = {
   gatewayHost: '127.0.0.1',
   gatewayPort: 18789,
   gatewayRemoteToken: '',
+  gatewayWslDistro: '',
+  gatewayWslUser: '',
   proxyEnabled: false,
   proxyServer: '',
   proxyHttpServer: '',
@@ -156,12 +162,14 @@ export const useSettingsStore = create<SettingsState>()(
         set({ gatewayPort });
         void hostApi.settings.set('gatewayPort', gatewayPort).catch(() => { });
       },
-      saveGatewayTarget: async ({ external, host, port, remoteToken }) => {
+      saveGatewayTarget: async ({ external, host, port, remoteToken, wslDistro, wslUser }) => {
         const patch = {
           gatewayExternal: external,
           gatewayHost: host,
           gatewayPort: port,
           gatewayRemoteToken: remoteToken,
+          gatewayWslDistro: wslDistro,
+          gatewayWslUser: wslUser,
         };
         await hostApi.settings.setMany(patch);
         set(patch);
